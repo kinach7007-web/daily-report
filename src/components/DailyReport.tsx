@@ -146,6 +146,7 @@ export default function DailyReport() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isRemoteUpdateRef = useRef(false);
+  const isInitializedFromCloudRef = useRef(false);
 
   // Real-time Firestore synchronization listener for selectedDate
   const fetchCloudData = async (force = false) => {
@@ -205,13 +206,17 @@ export default function DailyReport() {
       }
     } catch (e) {
       console.error("Manual fetch cloud data error:", e);
+    } finally {
+      isInitializedFromCloudRef.current = true;
     }
   };
 
   useEffect(() => {
+    isInitializedFromCloudRef.current = false;
     fetchCloudData(true);
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      isInitializedFromCloudRef.current = true;
       // If user is currently focused on an input/textarea, do NOT overwrite their typing
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
         return;
@@ -314,6 +319,7 @@ export default function DailyReport() {
   // Auto-sync persistence on every state change (prevents reset on tab switch or remount)
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
+    if (!isInitializedFromCloudRef.current) return;
     const stateObj = {
       lunchSales,
       dinnerSales,
@@ -554,7 +560,7 @@ export default function DailyReport() {
           totalReviews: reportData.reviews.totalReviews || existing.reviews.totalReviews || 0
       };
 
-      const mergedFridgeTemps = reportData.fridgeTemps.kitchen1 ? reportData.fridgeTemps : existing.fridgeTemps;
+      const mergedFridgeTemps = Object.values(reportData.fridgeTemps).some(v => v) ? reportData.fridgeTemps : (existing.fridgeTemps || fridgeTemps);
       const mergedDiscount = (reportData.discount.marketing.amount || reportData.discount.event.amount || reportData.discount.other.amount) ? reportData.discount : (existing.discount || discountStatus);
       const mergedAnnounce = reportData.announcements || existing.announcements;
       const mergedInventory = Object.values(reportData.inventory).some(v => v) ? reportData.inventory : existing.inventory;
