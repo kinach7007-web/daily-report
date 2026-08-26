@@ -50,8 +50,18 @@ export default function DailyReport() {
   const [currentBusinessDate, setCurrentBusinessDate] = useState<string>(() => getBusinessDate());
   const selectedDate = currentBusinessDate;
 
-  // Load state from dailyReportsHistory for today if exists, or draft state
+  // Load state from draft or dailyReportsHistory for today if exists
   const loadStateForDate = (date: string) => {
+    // 1. Check draft storage first
+    const draftStr = localStorage.getItem(`daily_report_draft_${date}`);
+    if (draftStr) {
+      try {
+        const parsed = JSON.parse(draftStr);
+        if (parsed) return parsed;
+      } catch (e) {}
+    }
+
+    // 2. Check dailyReportsHistory
     const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
     const record = savedReports.find(r => r.date === date);
     if (record) {
@@ -74,6 +84,29 @@ export default function DailyReport() {
         }
       };
     }
+
+    // 3. Fallback to individual items if present
+    const savedLunch = localStorage.getItem('lunchSales');
+    const savedDinner = localStorage.getItem('dinnerSales');
+    const savedNight = localStorage.getItem('nightSales');
+    if (savedLunch || savedDinner || savedNight) {
+      try {
+        return {
+          lunchSales: savedLunch ? JSON.parse(savedLunch) : { amount: '', count: '', isLocked: false },
+          dinnerSales: savedDinner ? JSON.parse(savedDinner) : { amount: '', count: '', isLocked: false },
+          nightSales: savedNight ? JSON.parse(savedNight) : { amount: '', count: '', isLocked: false },
+          reviewKindness: JSON.parse(localStorage.getItem('reviewKindness') || '{"count":"","isLocked":false}'),
+          reviewDelicious: JSON.parse(localStorage.getItem('reviewDelicious') || '{"count":"","isLocked":false}'),
+          reviewNormal: JSON.parse(localStorage.getItem('reviewNormal') || '{"count":"","isLocked":false}'),
+          reviewUncomfortable: JSON.parse(localStorage.getItem('reviewUncomfortable') || '{"count":"","isLocked":false}'),
+          reviewDetails: JSON.parse(localStorage.getItem('reviewDetails') || '{"service":"","facility":"","food":"","other":"","note":"","isLocked":false}'),
+          isReviewsLocked: localStorage.getItem('isReviewsLocked') === 'true',
+          fridgeTemps: JSON.parse(localStorage.getItem('fridgeTemps') || '{"kitchen1":"","kitchen2":"","hall1":"","hall2":"","drink":"","alcohol":"","storage1":"","storage2":"","isLocked":false}'),
+          discountStatus: JSON.parse(localStorage.getItem('discountStatus') || '{"marketing":{"amount":"","count":""},"event":{"amount":"","count":""},"other":{"amount":"","count":"","note":""},"isLocked":false}')
+        };
+      } catch (e) {}
+    }
+
     return null;
   };
 
@@ -144,49 +177,96 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
+  // Auto-sync persistence on every state change (prevents reset on tab switch or remount)
   useEffect(() => {
-    localStorage.setItem('lunchSales', JSON.stringify(lunchSales));
-  }, [lunchSales]);
+    const stateObj = {
+      lunchSales,
+      dinnerSales,
+      nightSales,
+      reviewKindness,
+      reviewDelicious,
+      reviewNormal,
+      reviewUncomfortable,
+      reviewDetails,
+      isReviewsLocked,
+      fridgeTemps,
+      discountStatus
+    };
+    localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
 
-  useEffect(() => {
-    localStorage.setItem('dinnerSales', JSON.stringify(dinnerSales));
-  }, [dinnerSales]);
+    // Also upsert into dailyReportsHistory for stats & persistence
+    const daysKor = ['일', '월', '화', '수', '목', '금', '토'];
+    const [curYear, curMon, curDay] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(curYear, curMon - 1, curDay);
+    const targetKorDay = daysKor[dateObj.getDay()] || '월';
+    const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
+    const nowTimeStr = new Date().toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
-  useEffect(() => {
-    localStorage.setItem('nightSales', JSON.stringify(nightSales));
-  }, [nightSales]);
+    const netDinnerAmount = Math.max(0, parseInt(dinnerSales.amount.replace(/[^0-9]/g, ''), 10) - parseInt(lunchSales.amount.replace(/[^0-9]/g, ''), 10)) || 0;
+    const netDinnerCount = Math.max(0, parseInt(dinnerSales.count.replace(/[^0-9]/g, ''), 10) - parseInt(lunchSales.count.replace(/[^0-9]/g, ''), 10)) || 0;
+    const netNightAmount = Math.max(0, parseInt(nightSales.amount.replace(/[^0-9]/g, ''), 10) - parseInt(dinnerSales.amount.replace(/[^0-9]/g, ''), 10)) || 0;
+    const netNightCount = Math.max(0, parseInt(nightSales.count.replace(/[^0-9]/g, ''), 10) - parseInt(dinnerSales.count.replace(/[^0-9]/g, ''), 10)) || 0;
+    const totalAmount = (parseInt(lunchSales.amount.replace(/[^0-9]/g, ''), 10) || 0) + netDinnerAmount + netNightAmount;
+    const totalCount = (parseInt(lunchSales.count.replace(/[^0-9]/g, ''), 10) || 0) + netDinnerCount + netNightCount;
+    const totalReviews = (parseInt(reviewKindness.count.replace(/[^0-9]/g, ''), 10) || 0) + 
+                         (parseInt(reviewDelicious.count.replace(/[^0-9]/g, ''), 10) || 0) + 
+                         (parseInt(reviewNormal.count.replace(/[^0-9]/g, ''), 10) || 0) + 
+                         (parseInt(reviewUncomfortable.count.replace(/[^0-9]/g, ''), 10) || 0);
 
-  useEffect(() => {
-    localStorage.setItem('reviewKindness', JSON.stringify(reviewKindness));
-  }, [reviewKindness]);
+    const record: DailyReportRecord = {
+      id: selectedDate,
+      date: selectedDate,
+      dayOfWeek: targetKorDay,
+      writer: authorName,
+      savedAt: nowTimeStr,
+      sales: {
+        lunch: lunchSales,
+        dinner: dinnerSales,
+        night: nightSales,
+        netDinnerAmount,
+        netDinnerCount,
+        netNightAmount,
+        netNightCount,
+        totalAmount,
+        totalCount,
+        avgTicket: totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
+      },
+      improvements: [],
+      reviews: {
+        kindness: reviewKindness,
+        delicious: reviewDelicious,
+        normal: reviewNormal,
+        uncomfortable: reviewUncomfortable,
+        details: reviewDetails,
+        totalReviews
+      },
+      discount: discountStatus,
+      fridgeTemps,
+      announcements: '',
+      complaints: [],
+      interviews: [],
+      inventory: {},
+      newHireChecklist: [],
+      adminChecklist: []
+    };
 
-  useEffect(() => {
-    localStorage.setItem('reviewDelicious', JSON.stringify(reviewDelicious));
-  }, [reviewDelicious]);
+    const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+    const idx = savedReports.findIndex(r => r.date === selectedDate);
+    if (idx >= 0) {
+      savedReports[idx] = { ...savedReports[idx], ...record };
+    } else {
+      savedReports.unshift(record);
+    }
+    localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
+    window.dispatchEvent(new Event('storage'));
 
-  useEffect(() => {
-    localStorage.setItem('reviewNormal', JSON.stringify(reviewNormal));
-  }, [reviewNormal]);
-
-  useEffect(() => {
-    localStorage.setItem('reviewUncomfortable', JSON.stringify(reviewUncomfortable));
-  }, [reviewUncomfortable]);
-
-  useEffect(() => {
-    localStorage.setItem('reviewDetails', JSON.stringify(reviewDetails));
-  }, [reviewDetails]);
-
-  useEffect(() => {
-    localStorage.setItem('isReviewsLocked', isReviewsLocked.toString());
-  }, [isReviewsLocked]);
-
-  useEffect(() => {
-    localStorage.setItem('fridgeTemps', JSON.stringify(fridgeTemps));
-  }, [fridgeTemps]);
-
-  useEffect(() => {
-    localStorage.setItem('discountStatus', JSON.stringify(discountStatus));
-  }, [discountStatus]);
+    // Sync to Firestore in real time
+    try {
+      setDoc(doc(db, 'dailyReports', selectedDate), record, { merge: true });
+    } catch (e) {
+      console.error('Real-time Firestore sync error:', e);
+    }
+  }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
 
   const formatNumber = (val: string) => {
     const num = val.replace(/[^0-9]/g, '');
