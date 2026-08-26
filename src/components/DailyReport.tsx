@@ -148,7 +148,11 @@ export default function DailyReport() {
   const isRemoteUpdateRef = useRef(false);
 
   // Real-time Firestore synchronization listener for selectedDate
-  const fetchCloudData = async () => {
+  const fetchCloudData = async (force = false) => {
+    // If user is currently focused on an input/textarea, do NOT overwrite their typing
+    if (!force && (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA')) {
+      return;
+    }
     try {
       const docRef = doc(db, 'dailyReports', selectedDate);
       const docSnap = await getDoc(docRef);
@@ -205,9 +209,13 @@ export default function DailyReport() {
   };
 
   useEffect(() => {
-    fetchCloudData();
+    fetchCloudData(true);
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      // If user is currently focused on an input/textarea, do NOT overwrite their typing
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
         if (record && record.sales) {
@@ -261,14 +269,8 @@ export default function DailyReport() {
       console.error("DailyReport real-time sync error:", error);
     });
 
-    // Polling interval every 3s to guarantee mobile/remote recovery
-    const interval = setInterval(() => {
-      fetchCloudData();
-    }, 3000);
-
     return () => {
       unsubscribe();
-      clearInterval(interval);
     };
   }, [selectedDate]);
 
