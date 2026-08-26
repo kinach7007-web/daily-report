@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
@@ -141,10 +141,71 @@ export default function DailyReport() {
   const [showCheerModal, setShowCheerModal] = useState(false);
   const [lastSavedDate, setLastSavedDate] = useState('');
 
+  const [touchStartY, setTouchStartY] = useState(0);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const isRemoteUpdateRef = useRef(false);
 
   // Real-time Firestore synchronization listener for selectedDate
+  const fetchCloudData = async () => {
+    try {
+      const docRef = doc(db, 'dailyReports', selectedDate);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const record = docSnap.data() as DailyReportRecord;
+        if (record && record.sales) {
+          isRemoteUpdateRef.current = true;
+          if (record.sales.lunch) setLunchSales(record.sales.lunch);
+          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+          if (record.sales.night) setNightSales(record.sales.night);
+          if (record.reviews) {
+            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+            if (record.reviews.details) {
+              setReviewDetails(record.reviews.details);
+              setIsReviewsLocked(record.reviews.details.isLocked || false);
+            }
+          }
+          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+          if (record.discount) setDiscountStatus(record.discount);
+
+          const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+          const idx = savedReports.findIndex(r => r.date === selectedDate);
+          if (idx >= 0) {
+            savedReports[idx] = record;
+          } else {
+            savedReports.unshift(record);
+          }
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
+          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify({
+            lunchSales: record.sales.lunch,
+            dinnerSales: record.sales.dinner,
+            nightSales: record.sales.night,
+            reviewKindness: record.reviews?.kindness,
+            reviewDelicious: record.reviews?.delicious,
+            reviewNormal: record.reviews?.normal,
+            reviewUncomfortable: record.reviews?.uncomfortable,
+            reviewDetails: record.reviews?.details,
+            isReviewsLocked: record.reviews?.details?.isLocked || false,
+            fridgeTemps: record.fridgeTemps,
+            discountStatus: record.discount
+          }));
+          window.dispatchEvent(new Event('storage'));
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 400);
+        }
+      }
+    } catch (e) {
+      console.error("Manual fetch cloud data error:", e);
+    }
+  };
+
   useEffect(() => {
+    fetchCloudData();
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -200,8 +261,14 @@ export default function DailyReport() {
       console.error("DailyReport real-time sync error:", error);
     });
 
+    // Polling interval every 3s to guarantee mobile/remote recovery
+    const interval = setInterval(() => {
+      fetchCloudData();
+    }, 3000);
+
     return () => {
       unsubscribe();
+      clearInterval(interval);
     };
   }, [selectedDate]);
 
@@ -608,7 +675,47 @@ export default function DailyReport() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-10 relative">
+    <div 
+      className="space-y-6 animate-in fade-in duration-500 pb-10 relative select-none"
+      onTouchStart={(e) => {
+        if (window.scrollY === 0) {
+          setTouchStartY(e.touches[0].clientY);
+        }
+      }}
+      onTouchMove={(e) => {
+        if (window.scrollY === 0 && touchStartY > 0) {
+          const currentY = e.touches[0].clientY;
+          const diff = currentY - touchStartY;
+          if (diff > 0) {
+            setPullDistance(Math.min(diff * 0.4, 100));
+          }
+        }
+      }}
+      onTouchEnd={async () => {
+        if (pullDistance > 50 && !isRefreshing) {
+          setIsRefreshing(true);
+          await fetchCloudData();
+          setToastMessage('🔄 클라우드 최신 데이터를 동기화했습니다!');
+          setTimeout(() => setToastMessage(''), 3000);
+          setIsRefreshing(false);
+        }
+        setTouchStartY(0);
+        setPullDistance(0);
+      }}
+    >
+      {/* Pull to Refresh Indicator */}
+      {(pullDistance > 0 || isRefreshing) && (
+        <div 
+          className="flex items-center justify-center text-xs font-semibold text-gray-500 transition-all overflow-hidden"
+          style={{ height: `${isRefreshing ? 40 : pullDistance}px` }}
+        >
+          <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full shadow-sm border border-gray-200">
+            <span className={`inline-block ${isRefreshing ? 'animate-spin' : ''}`}>🔄</span>
+            <span>{isRefreshing ? '클라우드 동기화 중...' : pullDistance > 50 ? '놓아서 새로고침' : '아래로 내려서 동기화'}</span>
+          </div>
+        </div>
+      )}
+
       {/* Celebration Cheer Modal */}
       <CheerModal
         isOpen={showCheerModal}
@@ -643,10 +750,12 @@ export default function DailyReport() {
               title="영업일 선택"
             />
           </div>
-          <button onClick={handleSaveDailyReport} className="bg-rose-400 hover:bg-rose-500 text-white px-5 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow-md font-medium whitespace-nowrap">
-            <Save className="w-4 h-4" />
-            저장
-          </button>
+          <div>
+            <button onClick={handleSaveDailyReport} className="bg-rose-400 hover:bg-rose-500 text-white px-5 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow-md font-medium whitespace-nowrap">
+              <Save className="w-4 h-4" />
+              저장
+            </button>
+          </div>
         </div>
       </div>
 
