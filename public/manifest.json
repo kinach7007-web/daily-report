@@ -1,0 +1,21 @@
+{
+  "name": "뼈반집 영업 관리 시스템",
+  "short_name": "뼈반집",
+  "description": "뼈반집 영업일보 및 관리 시스템",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#A8462B",
+  "icons": [
+    {
+      "src": "https://placehold.co/192x192/A8462B/white?text=Ppyeo",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://placehold.co/512x512/A8462B/white?text=Ppyeo",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

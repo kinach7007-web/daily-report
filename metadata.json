@@ -1,0 +1,6 @@
+{
+  "name": "뼈반집 영업 관리 시스템",
+  "description": "뼈반집의 영업일보, 일일업무 보고(오픈/마감), 영업통계, 고객 컴플레인, 면접 일지를 관리하는 애플리케이션입니다.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
