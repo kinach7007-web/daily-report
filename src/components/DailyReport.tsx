@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
@@ -141,8 +141,73 @@ export default function DailyReport() {
   const [showCheerModal, setShowCheerModal] = useState(false);
   const [lastSavedDate, setLastSavedDate] = useState('');
 
+  const isRemoteUpdateRef = useRef(false);
+
+  // Real-time Firestore synchronization listener for selectedDate
+  useEffect(() => {
+    const docRef = doc(db, 'dailyReports', selectedDate);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const record = docSnap.data() as DailyReportRecord;
+        if (record && record.sales) {
+          isRemoteUpdateRef.current = true;
+          if (record.sales.lunch) setLunchSales(record.sales.lunch);
+          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+          if (record.sales.night) setNightSales(record.sales.night);
+          if (record.reviews) {
+            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+            if (record.reviews.details) {
+              setReviewDetails(record.reviews.details);
+              setIsReviewsLocked(record.reviews.details.isLocked || false);
+            }
+          }
+          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+          if (record.discount) setDiscountStatus(record.discount);
+
+          // Update local history cache
+          const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+          const idx = savedReports.findIndex(r => r.date === selectedDate);
+          if (idx >= 0) {
+            savedReports[idx] = record;
+          } else {
+            savedReports.unshift(record);
+          }
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
+          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify({
+            lunchSales: record.sales.lunch,
+            dinnerSales: record.sales.dinner,
+            nightSales: record.sales.night,
+            reviewKindness: record.reviews?.kindness,
+            reviewDelicious: record.reviews?.delicious,
+            reviewNormal: record.reviews?.normal,
+            reviewUncomfortable: record.reviews?.uncomfortable,
+            reviewDetails: record.reviews?.details,
+            isReviewsLocked: record.reviews?.details?.isLocked || false,
+            fridgeTemps: record.fridgeTemps,
+            discountStatus: record.discount
+          }));
+          window.dispatchEvent(new Event('storage'));
+
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 400);
+        }
+      }
+    }, (error) => {
+      console.error("DailyReport real-time sync error:", error);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [selectedDate]);
+
   // When date changes from outside, sync fields to that date
   useEffect(() => {
+    if (isRemoteUpdateRef.current) return;
     const vals = loadStateForDate(selectedDate);
     if (vals) {
       setLunchSales(vals.lunchSales);
@@ -179,6 +244,7 @@ export default function DailyReport() {
 
   // Auto-sync persistence on every state change (prevents reset on tab switch or remount)
   useEffect(() => {
+    if (isRemoteUpdateRef.current) return;
     const stateObj = {
       lunchSales,
       dinnerSales,
