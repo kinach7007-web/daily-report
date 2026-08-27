@@ -34,15 +34,17 @@ export const getBusinessDate = () => {
     return `${y}-${m}-${dateStr}`;
   };
 
-  // If there's an active business date set in storage, use it
+  // If there's an active business date set in storage, use it strictly
   const active = localStorage.getItem('activeReportDate');
   if (active) {
     return active;
   }
   
-  // Default to real today if none set
+  // If none set, initialize once and store in localStorage so it never drifts or auto-jumps
   const now = new Date();
-  return formatStr(now);
+  const initialDate = formatStr(now);
+  localStorage.setItem('activeReportDate', initialDate);
+  return initialDate;
 };
 
 export default function DailyReport() {
@@ -316,7 +318,7 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
-  // Auto-sync persistence on every state change (prevents reset on tab switch or remount)
+  // Auto-save draft locally on state change (prevents data loss on browser refresh, but does NOT finalize or sync to history/Firestore/next date until Confirm button is clicked)
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
     if (!isInitializedFromCloudRef.current) return;
@@ -334,79 +336,6 @@ export default function DailyReport() {
       discountStatus
     };
     localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
-
-    // Also upsert into dailyReportsHistory for stats & persistence
-    const daysKor = ['일', '월', '화', '수', '목', '금', '토'];
-    const [curYear, curMon, curDay] = selectedDate.split('-').map(Number);
-    const dateObj = new Date(curYear, curMon - 1, curDay);
-    const targetKorDay = daysKor[dateObj.getDay()] || '월';
-    const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
-    const nowTimeStr = new Date().toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-
-    const netDinnerAmount = Math.max(0, parseInt(dinnerSales.amount.replace(/[^0-9]/g, ''), 10) - parseInt(lunchSales.amount.replace(/[^0-9]/g, ''), 10)) || 0;
-    const netDinnerCount = Math.max(0, parseInt(dinnerSales.count.replace(/[^0-9]/g, ''), 10) - parseInt(lunchSales.count.replace(/[^0-9]/g, ''), 10)) || 0;
-    const netNightAmount = Math.max(0, parseInt(nightSales.amount.replace(/[^0-9]/g, ''), 10) - parseInt(dinnerSales.amount.replace(/[^0-9]/g, ''), 10)) || 0;
-    const netNightCount = Math.max(0, parseInt(nightSales.count.replace(/[^0-9]/g, ''), 10) - parseInt(dinnerSales.count.replace(/[^0-9]/g, ''), 10)) || 0;
-    const totalAmount = (parseInt(lunchSales.amount.replace(/[^0-9]/g, ''), 10) || 0) + netDinnerAmount + netNightAmount;
-    const totalCount = (parseInt(lunchSales.count.replace(/[^0-9]/g, ''), 10) || 0) + netDinnerCount + netNightCount;
-    const totalReviews = (parseInt(reviewKindness.count.replace(/[^0-9]/g, ''), 10) || 0) + 
-                         (parseInt(reviewDelicious.count.replace(/[^0-9]/g, ''), 10) || 0) + 
-                         (parseInt(reviewNormal.count.replace(/[^0-9]/g, ''), 10) || 0) + 
-                         (parseInt(reviewUncomfortable.count.replace(/[^0-9]/g, ''), 10) || 0);
-
-    const record: DailyReportRecord = {
-      id: selectedDate,
-      date: selectedDate,
-      dayOfWeek: targetKorDay,
-      writer: authorName,
-      savedAt: nowTimeStr,
-      sales: {
-        lunch: lunchSales,
-        dinner: dinnerSales,
-        night: nightSales,
-        netDinnerAmount,
-        netDinnerCount,
-        netNightAmount,
-        netNightCount,
-        totalAmount,
-        totalCount,
-        avgTicket: totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
-      },
-      improvements: [],
-      reviews: {
-        kindness: reviewKindness,
-        delicious: reviewDelicious,
-        normal: reviewNormal,
-        uncomfortable: reviewUncomfortable,
-        details: reviewDetails,
-        totalReviews
-      },
-      discount: discountStatus,
-      fridgeTemps,
-      announcements: '',
-      complaints: [],
-      interviews: [],
-      inventory: {},
-      newHireChecklist: [],
-      adminChecklist: []
-    };
-
-    const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-    const idx = savedReports.findIndex(r => r.date === selectedDate);
-    if (idx >= 0) {
-      savedReports[idx] = { ...savedReports[idx], ...record };
-    } else {
-      savedReports.unshift(record);
-    }
-    localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
-    window.dispatchEvent(new Event('storage'));
-
-    // Sync to Firestore in real time
-    try {
-      setDoc(doc(db, 'dailyReports', selectedDate), record, { merge: true });
-    } catch (e) {
-      console.error('Real-time Firestore sync error:', e);
-    }
   }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
 
   const formatNumber = (val: string) => {
@@ -761,7 +690,7 @@ export default function DailyReport() {
           <div>
             <button onClick={handleSaveDailyReport} className="bg-rose-400 hover:bg-rose-500 text-white px-5 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow-md font-medium whitespace-nowrap">
               <Save className="w-4 h-4" />
-              저장
+              마감
             </button>
           </div>
         </div>
