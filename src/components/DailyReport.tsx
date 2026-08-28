@@ -261,38 +261,32 @@ export default function DailyReport() {
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       isInitializedFromCloudRef.current = true;
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-        return;
-      }
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
         if (record && record.sales) {
-          // If local state is empty/zero while remote has data, or if remote update comes from another user/session
-          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
-          const remoteHasInput = record.sales.lunch?.amount || record.sales.dinner?.amount || record.sales.night?.amount;
-
-          if (remoteHasInput && !hasLocalInput) {
-            isRemoteUpdateRef.current = true;
-            if (record.sales.lunch) setLunchSales(record.sales.lunch);
-            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-            if (record.sales.night) setNightSales(record.sales.night);
-            if (record.reviews) {
-              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-              if (record.reviews.details) {
-                setReviewDetails(record.reviews.details);
-                setIsReviewsLocked(record.reviews.details.isLocked || false);
-              }
+          isRemoteUpdateRef.current = true;
+          if (record.sales.lunch) setLunchSales(record.sales.lunch);
+          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+          if (record.sales.night) setNightSales(record.sales.night);
+          if (record.reviews) {
+            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+            if (record.reviews.details) {
+              setReviewDetails(record.reviews.details);
+              setIsReviewsLocked(record.reviews.details.isLocked || false);
             }
-            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-            if (record.discount) setDiscountStatus(record.discount);
-            setTimeout(() => {
-              isRemoteUpdateRef.current = false;
-            }, 400);
           }
+          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+          if (record.discount) setDiscountStatus(record.discount);
+
+          setToastMessage(`⚡ 다른 사용자의 실시간 업데이트/확정이 반영되었습니다.`);
+          setTimeout(() => setToastMessage(''), 3000);
+
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 400);
         }
       }
     }, (error) => {
@@ -341,7 +335,62 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
-  // Auto-save draft locally on state change (prevents data loss on browser refresh or tab switching)
+  // Auto-save draft locally and sync to Firestore in real-time on state change
+  const syncToFirestore = async (customOverrides = {}) => {
+    if (isRemoteUpdateRef.current) return;
+    try {
+      const today = selectedDate;
+      const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
+      const nowTimeStr = new Date().toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const daysKor = ['일', '월', '화', '수', '목', '금', '토'];
+      const [curYear, curMon, curDay] = today.split('-').map(Number);
+      const targetKorDay = daysKor[new Date(curYear, curMon - 1, curDay).getDay()] || '월';
+
+      const draftRecord = {
+        id: today,
+        date: today,
+        dayOfWeek: targetKorDay,
+        writer: authorName,
+        savedAt: nowTimeStr,
+        sales: {
+          lunch: lunchSales,
+          dinner: dinnerSales,
+          night: nightSales,
+          netDinnerAmount,
+          netDinnerCount,
+          netNightAmount,
+          netNightCount,
+          totalAmount,
+          totalCount,
+          avgTicket: totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
+        },
+        reviews: {
+          kindness: reviewKindness,
+          delicious: reviewDelicious,
+          normal: reviewNormal,
+          uncomfortable: reviewUncomfortable,
+          details: reviewDetails,
+          totalReviews
+        },
+        discount: discountStatus,
+        fridgeTemps,
+        updatedAt: Timestamp.now(),
+        ...customOverrides
+      };
+
+      await setDoc(doc(db, 'dailyReports', today), draftRecord, { merge: true });
+    } catch (e) {
+      console.warn('Realtime cloud sync error:', e);
+    }
+  };
+
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
     const stateObj = {
@@ -358,6 +407,13 @@ export default function DailyReport() {
       discountStatus
     };
     localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
+
+    // Debounced real-time Firestore sync so other users see updates and confirm statuses instantly
+    const timer = setTimeout(() => {
+      syncToFirestore();
+    }, 600);
+
+    return () => clearTimeout(timer);
   }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
 
 
