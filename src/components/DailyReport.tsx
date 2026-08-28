@@ -213,6 +213,38 @@ export default function DailyReport() {
     }
   };
 
+  // Global collection sync for all daily reports across users
+  useEffect(() => {
+    try {
+      const reportsRef = collection(db, 'dailyReports');
+      const unsubscribeAll = onSnapshot(reportsRef, (snapshot) => {
+        const firestoreList: DailyReportRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({
+            id: docSnap.id,
+            ...(docSnap.data() as any)
+          });
+        });
+        if (firestoreList.length > 0) {
+          const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+          const combinedMap = new Map<string, DailyReportRecord>();
+          localData.forEach(r => combinedMap.set(r.date, r));
+          firestoreList.forEach(r => combinedMap.set(r.date, r));
+          const merged = Array.from(combinedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(merged));
+          window.dispatchEvent(new Event('storage'));
+        }
+      }, (err) => {
+        console.warn('Global dailyReports sync note:', err);
+      });
+      return () => {
+        unsubscribeAll();
+      };
+    } catch (e) {
+      console.warn('Global dailyReports sync error:', e);
+    }
+  }, []);
+
   useEffect(() => {
     isInitializedFromCloudRef.current = false;
     fetchCloudData(true);
@@ -359,7 +391,7 @@ export default function DailyReport() {
                        parseAmount(reviewNormal.count) + 
                        parseAmount(reviewUncomfortable.count);
 
-  const handleSaveDailyReport = () => {
+  const handleSaveDailyReport = async () => {
     const today = selectedDate;
     
     // Get all un-saved complaints, interviews, checklist
@@ -596,8 +628,8 @@ export default function DailyReport() {
 
     // Sync to Firestore for persistence & notifications
     try {
-      setDoc(doc(db, 'dailyReports', today), reportData, { merge: true });
-      addDoc(collection(db, 'reports'), {
+      await setDoc(doc(db, 'dailyReports', today), reportData, { merge: true });
+      await addDoc(collection(db, 'reports'), {
         writer: authorName,
         type: '영업일보',
         title: '영업일보 대시보드 저장',
@@ -606,6 +638,7 @@ export default function DailyReport() {
         totalCount: reportData.sales.totalCount,
         createdAt: Timestamp.now()
       });
+      localStorage.removeItem(`daily_report_draft_${today}`);
     } catch (e) {
       console.error('Firestore sync failed', e);
     }
