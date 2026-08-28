@@ -147,6 +147,27 @@ export default function DailyReport() {
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const parseAmount = (val: string) => parseInt((val || '').replace(/[^0-9]/g, ''), 10) || 0;
+  
+  // Calculate net values for cumulative inputs
+  const netDinnerAmount = Math.max(0, parseAmount(dinnerSales.amount) - parseAmount(lunchSales.amount));
+  const netDinnerCount = Math.max(0, parseAmount(dinnerSales.count) - parseAmount(lunchSales.count));
+  const netNightAmount = Math.max(0, parseAmount(nightSales.amount) - parseAmount(dinnerSales.amount));
+  const netNightCount = Math.max(0, parseAmount(nightSales.count) - parseAmount(dinnerSales.count));
+
+  const totalAmount = parseAmount(lunchSales.amount) + netDinnerAmount + netNightAmount;
+  const totalCount = parseAmount(lunchSales.count) + netDinnerCount + netNightCount;
+
+  const totalReviews = parseAmount(reviewKindness.count) + 
+                       parseAmount(reviewDelicious.count) + 
+                       parseAmount(reviewNormal.count) + 
+                       parseAmount(reviewUncomfortable.count);
+
+  const formatNumber = (val: string) => {
+    const num = (val || '').replace(/[^0-9]/g, '');
+    return num ? Number(num).toLocaleString() : '';
+  };
+
   const isRemoteUpdateRef = useRef(false);
   const isInitializedFromCloudRef = useRef(false);
 
@@ -259,25 +280,31 @@ export default function DailyReport() {
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
         if (record && record.sales) {
-          isRemoteUpdateRef.current = true;
-          if (record.sales.lunch) setLunchSales(record.sales.lunch);
-          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-          if (record.sales.night) setNightSales(record.sales.night);
-          if (record.reviews) {
-            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-            if (record.reviews.details) {
-              setReviewDetails(record.reviews.details);
-              setIsReviewsLocked(record.reviews.details.isLocked || false);
+          // If local state is empty/zero while remote has data, or if remote update comes from another user/session
+          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
+          const remoteHasInput = record.sales.lunch?.amount || record.sales.dinner?.amount || record.sales.night?.amount;
+
+          if (remoteHasInput && !hasLocalInput) {
+            isRemoteUpdateRef.current = true;
+            if (record.sales.lunch) setLunchSales(record.sales.lunch);
+            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+            if (record.sales.night) setNightSales(record.sales.night);
+            if (record.reviews) {
+              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+              if (record.reviews.details) {
+                setReviewDetails(record.reviews.details);
+                setIsReviewsLocked(record.reviews.details.isLocked || false);
+              }
             }
+            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+            if (record.discount) setDiscountStatus(record.discount);
+            setTimeout(() => {
+              isRemoteUpdateRef.current = false;
+            }, 400);
           }
-          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-          if (record.discount) setDiscountStatus(record.discount);
-          setTimeout(() => {
-            isRemoteUpdateRef.current = false;
-          }, 400);
         }
       }
     }, (error) => {
@@ -326,7 +353,7 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
-  // Auto-save draft locally on state change (prevents data loss on browser refresh)
+  // Auto-save draft locally on state change (prevents data loss on browser refresh or tab switching)
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
     const stateObj = {
@@ -345,26 +372,7 @@ export default function DailyReport() {
     localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
   }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
 
-  const formatNumber = (val: string) => {
-    const num = val.replace(/[^0-9]/g, '');
-    return num ? Number(num).toLocaleString() : '';
-  };
 
-  const parseAmount = (val: string) => parseInt(val.replace(/[^0-9]/g, ''), 10) || 0;
-  
-  // Calculate net values for cumulative inputs
-  const netDinnerAmount = Math.max(0, parseAmount(dinnerSales.amount) - parseAmount(lunchSales.amount));
-  const netDinnerCount = Math.max(0, parseAmount(dinnerSales.count) - parseAmount(lunchSales.count));
-  const netNightAmount = Math.max(0, parseAmount(nightSales.amount) - parseAmount(dinnerSales.amount));
-  const netNightCount = Math.max(0, parseAmount(nightSales.count) - parseAmount(dinnerSales.count));
-
-  const totalAmount = parseAmount(lunchSales.amount) + netDinnerAmount + netNightAmount;
-  const totalCount = parseAmount(lunchSales.count) + netDinnerCount + netNightCount;
-
-  const totalReviews = parseAmount(reviewKindness.count) + 
-                       parseAmount(reviewDelicious.count) + 
-                       parseAmount(reviewNormal.count) + 
-                       parseAmount(reviewUncomfortable.count);
 
   const handleSaveDailyReport = async () => {
     const today = selectedDate;
