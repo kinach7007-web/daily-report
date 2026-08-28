@@ -251,59 +251,13 @@ export default function DailyReport() {
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       isInitializedFromCloudRef.current = true;
-      // If user is currently focused on an input/textarea, do NOT overwrite their typing
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+      // If user is currently focused on any input or textarea, or typing, NEVER overwrite state
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true')) {
         return;
       }
-      if (docSnap.exists()) {
-        const record = docSnap.data() as DailyReportRecord;
-        if (record && record.sales) {
-          isRemoteUpdateRef.current = true;
-          if (record.sales.lunch) setLunchSales(record.sales.lunch);
-          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-          if (record.sales.night) setNightSales(record.sales.night);
-          if (record.reviews) {
-            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-            if (record.reviews.details) {
-              setReviewDetails(record.reviews.details);
-              setIsReviewsLocked(record.reviews.details.isLocked || false);
-            }
-          }
-          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-          if (record.discount) setDiscountStatus(record.discount);
-
-          // Update local history cache
-          const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-          const idx = savedReports.findIndex(r => r.date === selectedDate);
-          if (idx >= 0) {
-            savedReports[idx] = record;
-          } else {
-            savedReports.unshift(record);
-          }
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
-          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify({
-            lunchSales: record.sales.lunch,
-            dinnerSales: record.sales.dinner,
-            nightSales: record.sales.night,
-            reviewKindness: record.reviews?.kindness,
-            reviewDelicious: record.reviews?.delicious,
-            reviewNormal: record.reviews?.normal,
-            reviewUncomfortable: record.reviews?.uncomfortable,
-            reviewDetails: record.reviews?.details,
-            isReviewsLocked: record.reviews?.details?.isLocked || false,
-            fridgeTemps: record.fridgeTemps,
-            discountStatus: record.discount
-          }));
-          window.dispatchEvent(new Event('storage'));
-
-          setTimeout(() => {
-            isRemoteUpdateRef.current = false;
-          }, 400);
-        }
-      }
+      // If user has local draft edits that are newer or currently being typed, do not overwrite unless forced
+      return;
     }, (error) => {
       console.error("DailyReport real-time sync error:", error);
     });
