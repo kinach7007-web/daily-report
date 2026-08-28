@@ -173,33 +173,12 @@ export default function DailyReport() {
 
   // Real-time Firestore synchronization listener for selectedDate
   const fetchCloudData = async (force = false) => {
-    // If user is currently focused on an input/textarea, do NOT overwrite their typing
-    if (!force && (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA')) {
-      return;
-    }
     try {
       const docRef = doc(db, 'dailyReports', selectedDate);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
         if (record && record.sales) {
-          isRemoteUpdateRef.current = true;
-          if (record.sales.lunch) setLunchSales(record.sales.lunch);
-          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-          if (record.sales.night) setNightSales(record.sales.night);
-          if (record.reviews) {
-            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-            if (record.reviews.details) {
-              setReviewDetails(record.reviews.details);
-              setIsReviewsLocked(record.reviews.details.isLocked || false);
-            }
-          }
-          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-          if (record.discount) setDiscountStatus(record.discount);
-
           const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
           const idx = savedReports.findIndex(r => r.date === selectedDate);
           if (idx >= 0) {
@@ -208,23 +187,32 @@ export default function DailyReport() {
             savedReports.unshift(record);
           }
           localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
-          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify({
-            lunchSales: record.sales.lunch,
-            dinnerSales: record.sales.dinner,
-            nightSales: record.sales.night,
-            reviewKindness: record.reviews?.kindness,
-            reviewDelicious: record.reviews?.delicious,
-            reviewNormal: record.reviews?.normal,
-            reviewUncomfortable: record.reviews?.uncomfortable,
-            reviewDetails: record.reviews?.details,
-            isReviewsLocked: record.reviews?.details?.isLocked || false,
-            fridgeTemps: record.fridgeTemps,
-            discountStatus: record.discount
-          }));
           window.dispatchEvent(new Event('storage'));
-          setTimeout(() => {
-            isRemoteUpdateRef.current = false;
-          }, 400);
+
+          const hasLocalDraft = localStorage.getItem(`daily_report_draft_${selectedDate}`);
+          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
+
+          if (force || (!hasLocalDraft && !hasLocalInput)) {
+            isRemoteUpdateRef.current = true;
+            if (record.sales.lunch) setLunchSales(record.sales.lunch);
+            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+            if (record.sales.night) setNightSales(record.sales.night);
+            if (record.reviews) {
+              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+              if (record.reviews.details) {
+                setReviewDetails(record.reviews.details);
+                setIsReviewsLocked(record.reviews.details.isLocked || false);
+              }
+            }
+            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+            if (record.discount) setDiscountStatus(record.discount);
+            setTimeout(() => {
+              isRemoteUpdateRef.current = false;
+            }, 400);
+          }
         }
       }
     } catch (e) {

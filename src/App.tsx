@@ -175,12 +175,14 @@ function MainApp() {
       {/* Main Content */}
       <div className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-6xl mx-auto">
         <NotificationManager />
-        {activeTab === 'daily' && <DailyReport />}
-        {activeTab === 'task-report' && <DailyTaskReport />}
-        {activeTab === 'stats' && <SalesStats />}
-        {activeTab === 'complaint' && <ComplaintLog />}
-        {activeTab === 'interview' && <InterviewLog />}
-        {activeTab === 'admin' && currentUser.isAdmin && <AdminCenter />}
+        <div className={activeTab === 'daily' ? 'block' : 'hidden'}><DailyReport /></div>
+        <div className={activeTab === 'task-report' ? 'block' : 'hidden'}><DailyTaskReport /></div>
+        <div className={activeTab === 'stats' ? 'block' : 'hidden'}><SalesStats /></div>
+        <div className={activeTab === 'complaint' ? 'block' : 'hidden'}><ComplaintLog /></div>
+        <div className={activeTab === 'interview' ? 'block' : 'hidden'}><InterviewLog /></div>
+        {currentUser.isAdmin && (
+          <div className={activeTab === 'admin' ? 'block' : 'hidden'}><AdminCenter /></div>
+        )}
       </div>
     </div>
   );
