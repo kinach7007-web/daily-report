@@ -121,6 +121,11 @@ export default function DailyTaskReport() {
       setOpenDate(activeLabel);
       setCloseDate(activeLabel);
 
+      if (currentUser?.name) {
+        if (!openWriter) setOpenWriter(currentUser.name);
+        if (!closeWriter) setCloseWriter(currentUser.name);
+      }
+
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const data = JSON.parse(raw);

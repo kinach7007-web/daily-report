@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query } from 'firebase/firestore';
+import { collection, query, onSnapshot } from 'firebase/firestore';
 import { 
   Calendar, 
   Info, 
@@ -184,12 +184,34 @@ export default function SalesStats() {
   useEffect(() => {
     loadHistory();
 
-    const handleStorage = () => loadHistory();
-    window.addEventListener('storage', handleStorage);
+    try {
+      const q = query(collection(db, 'dailyReports'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const firestoreReports: any[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreReports.push(docSnap.data());
+        });
+        if (firestoreReports.length > 0) {
+          setReportsHistory(firestoreReports);
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreReports));
+        }
+      }, (error) => {
+        console.error("Firestore snapshot error:", error);
+      });
 
-    return () => {
-      window.removeEventListener('storage', handleStorage);
-    };
+      const handleStorage = () => loadHistory();
+      window.addEventListener('storage', handleStorage);
+
+      return () => {
+        unsubscribe();
+        window.removeEventListener('storage', handleStorage);
+      };
+    } catch (e) {
+      console.error("Failed to setup firestore listener", e);
+      const handleStorage = () => loadHistory();
+      window.addEventListener('storage', handleStorage);
+      return () => window.removeEventListener('storage', handleStorage);
+    }
   }, []);
 
   const getReportForDate = (dateStr: string) => {

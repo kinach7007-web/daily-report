@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
@@ -213,10 +213,80 @@ export default function DailyReport() {
     }
   };
 
+  // Real-time synchronization listener for all daily reports across users
+  useEffect(() => {
+    try {
+      const reportsRef = collection(db, 'dailyReports');
+      const unsubscribeAll = onSnapshot(reportsRef, (snapshot) => {
+        const firestoreList: DailyReportRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({
+            id: docSnap.id,
+            ...(docSnap.data() as any)
+          });
+        });
+        if (firestoreList.length > 0) {
+          const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+          const combinedMap = new Map<string, DailyReportRecord>();
+          localData.forEach(r => combinedMap.set(r.date, r));
+          firestoreList.forEach(r => combinedMap.set(r.date, r));
+          const merged = Array.from(combinedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(merged));
+          window.dispatchEvent(new Event('storage'));
+        }
+      }, (err) => {
+        console.warn('Global dailyReports sync note:', err);
+      });
+      return () => {
+        unsubscribeAll();
+      };
+    } catch (e) {
+      console.warn('Global dailyReports sync error:', e);
+    }
+  }, []);
+
   // On-demand fetch cloud data for selectedDate when changing date or manual sync
   useEffect(() => {
     isInitializedFromCloudRef.current = false;
     fetchCloudData(true);
+    const docRef = doc(db, 'dailyReports', selectedDate);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      isInitializedFromCloudRef.current = true;
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return;
+      }
+      if (docSnap.exists()) {
+        const record = docSnap.data() as DailyReportRecord;
+        if (record && record.sales) {
+          isRemoteUpdateRef.current = true;
+          if (record.sales.lunch) setLunchSales(record.sales.lunch);
+          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+          if (record.sales.night) setNightSales(record.sales.night);
+          if (record.reviews) {
+            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+            if (record.reviews.details) {
+              setReviewDetails(record.reviews.details);
+              setIsReviewsLocked(record.reviews.details.isLocked || false);
+            }
+          }
+          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+          if (record.discount) setDiscountStatus(record.discount);
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 400);
+        }
+      }
+    }, (error) => {
+      console.error("DailyReport real-time sync error:", error);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [selectedDate]);
 
   // When date changes from outside, sync fields to that date
@@ -256,10 +326,9 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
-  // Auto-save draft locally on state change (prevents data loss on browser refresh, but does NOT finalize or sync to history/Firestore/next date until Confirm button is clicked)
+  // Auto-save draft locally on state change (prevents data loss on browser refresh)
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
-    if (!isInitializedFromCloudRef.current) return;
     const stateObj = {
       lunchSales,
       dinnerSales,
