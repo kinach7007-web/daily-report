@@ -59,6 +59,42 @@ export default function AdminCenter() {
     return isNaN(num) ? 0 : num;
   };
 
+  const getReportLunch = (r: any) => {
+    if (!r) return 0;
+    return parseAmount(r.sales?.lunch?.amount || r.lunchSales?.amount);
+  };
+
+  const getReportDinner = (r: any) => {
+    if (!r) return 0;
+    if (r.sales?.netDinnerAmount !== undefined && r.sales?.netDinnerAmount !== null && r.sales?.netDinnerAmount !== '') {
+      return parseAmount(r.sales.netDinnerAmount);
+    }
+    const lunchAmt = getReportLunch(r);
+    const rawDinner = parseAmount(r.sales?.dinner?.amount || r.dinnerSales?.amount);
+    return Math.max(0, rawDinner - lunchAmt);
+  };
+
+  const getReportNight = (r: any) => {
+    if (!r) return 0;
+    if (r.sales?.netNightAmount !== undefined && r.sales?.netNightAmount !== null && r.sales?.netNightAmount !== '') {
+      return parseAmount(r.sales.netNightAmount);
+    }
+    const rawDinner = parseAmount(r.sales?.dinner?.amount || r.dinnerSales?.amount);
+    const rawNight = parseAmount(r.sales?.night?.amount || r.nightSales?.amount);
+    return Math.max(0, rawNight - rawDinner);
+  };
+
+  const getReportTotal = (r: any) => {
+    if (!r) return 0;
+    if (r.sales?.totalAmount !== undefined && r.sales?.totalAmount !== null && r.sales?.totalAmount !== '') {
+      return parseAmount(r.sales.totalAmount);
+    }
+    const l = getReportLunch(r);
+    const dn = getReportDinner(r);
+    const nt = getReportNight(r);
+    return l + dn + nt;
+  };
+
   const loadHistory = () => {
     const saved = localStorage.getItem('dailyReportsHistory');
     if (saved) {
@@ -114,11 +150,11 @@ export default function AdminCenter() {
         if (!y || !m || !d) return;
         const dow = new Date(y, m - 1, d).getDay();
         if (dow === w.key) {
-          const l = parseAmount(r.sales?.lunch?.amount || r.lunchSales?.amount);
-          const dn = parseAmount(r.sales?.dinner?.amount || r.dinnerSales?.amount);
-          const nt = parseAmount(r.sales?.night?.amount || r.nightSales?.amount);
-          const tot = l + dn + nt;
-          if (tot > 0) {
+          const l = getReportLunch(r);
+          const dn = getReportDinner(r);
+          const nt = getReportNight(r);
+          const tot = getReportTotal(r);
+          if (tot > 0 || l > 0 || dn > 0 || nt > 0) {
             count += 1;
             lunch += l;
             dinner += dn;

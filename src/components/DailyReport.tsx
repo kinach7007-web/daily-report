@@ -26,29 +26,24 @@ export const Card = ({ children, className = '' }: { children: React.ReactNode, 
   </div>
 );
 
-export const getBusinessDate = () => {
-  const formatStr = (d: Date) => {
-    // Format using Korean timezone (Asia/Seoul)
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-    return formatter.format(d); // returns YYYY-MM-DD
-  };
+export const getTodayKST = () => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(new Date()); // returns YYYY-MM-DD
+};
 
-  // If there's an active business date set in storage, use it strictly
+export const getBusinessDate = () => {
   const active = localStorage.getItem('activeReportDate');
   if (active) {
     return active;
   }
-  
-  // If none set, initialize once in KST
-  const now = new Date();
-  const initialDate = formatStr(now);
-  localStorage.setItem('activeReportDate', initialDate);
-  return initialDate;
+  const today = getTodayKST();
+  localStorage.setItem('activeReportDate', today);
+  return today;
 };
 
 export default function DailyReport() {
@@ -56,9 +51,9 @@ export default function DailyReport() {
   const [currentBusinessDate, setCurrentBusinessDate] = useState<string>(() => getBusinessDate());
   const selectedDate = currentBusinessDate;
 
-  // Load state from draft or dailyReportsHistory for today if exists
+  // Load state from draft or dailyReportsHistory for specific date only
   const loadStateForDate = (date: string) => {
-    // 1. Check draft storage first
+    // 1. Check date-specific draft storage first
     const draftStr = localStorage.getItem(`daily_report_draft_${date}`);
     if (draftStr) {
       try {
@@ -91,28 +86,7 @@ export default function DailyReport() {
       };
     }
 
-    // 3. Fallback to individual items if present
-    const savedLunch = localStorage.getItem('lunchSales');
-    const savedDinner = localStorage.getItem('dinnerSales');
-    const savedNight = localStorage.getItem('nightSales');
-    if (savedLunch || savedDinner || savedNight) {
-      try {
-        return {
-          lunchSales: savedLunch ? JSON.parse(savedLunch) : { amount: '', count: '', isLocked: false },
-          dinnerSales: savedDinner ? JSON.parse(savedDinner) : { amount: '', count: '', isLocked: false },
-          nightSales: savedNight ? JSON.parse(savedNight) : { amount: '', count: '', isLocked: false },
-          reviewKindness: JSON.parse(localStorage.getItem('reviewKindness') || '{"count":"","isLocked":false}'),
-          reviewDelicious: JSON.parse(localStorage.getItem('reviewDelicious') || '{"count":"","isLocked":false}'),
-          reviewNormal: JSON.parse(localStorage.getItem('reviewNormal') || '{"count":"","isLocked":false}'),
-          reviewUncomfortable: JSON.parse(localStorage.getItem('reviewUncomfortable') || '{"count":"","isLocked":false}'),
-          reviewDetails: JSON.parse(localStorage.getItem('reviewDetails') || '{"service":"","facility":"","food":"","other":"","note":"","isLocked":false}'),
-          isReviewsLocked: localStorage.getItem('isReviewsLocked') === 'true',
-          fridgeTemps: JSON.parse(localStorage.getItem('fridgeTemps') || '{"kitchen1":"","kitchen2":"","hall1":"","hall2":"","drink":"","alcohol":"","storage1":"","storage2":"","isLocked":false}'),
-          discountStatus: JSON.parse(localStorage.getItem('discountStatus') || '{"marketing":{"amount":"","count":""},"event":{"amount":"","count":""},"other":{"amount":"","count":"","note":""},"isLocked":false}')
-        };
-      } catch (e) {}
-    }
-
+    // Do NOT fallback to global undated items (which caused old date values to leak into new dates)
     return null;
   };
 
@@ -196,7 +170,8 @@ export default function DailyReport() {
           const hasLocalDraft = localStorage.getItem(`daily_report_draft_${selectedDate}`);
           const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
 
-          if (force || (!hasLocalDraft && !hasLocalInput)) {
+          // Only overwrite form if forced or if there is no local input/draft and cloud has confirmed data
+          if (force && (!hasLocalInput || record.isConfirmed)) {
             isRemoteUpdateRef.current = true;
             if (record.sales.lunch) setLunchSales(record.sales.lunch);
             if (record.sales.dinner) setDinnerSales(record.sales.dinner);
@@ -261,36 +236,50 @@ export default function DailyReport() {
   // On-demand fetch cloud data for selectedDate when changing date or manual sync
   useEffect(() => {
     isInitializedFromCloudRef.current = false;
-    fetchCloudData(true);
+    fetchCloudData(false);
     const docRef = doc(db, 'dailyReports', selectedDate);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       isInitializedFromCloudRef.current = true;
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
         if (record && record.sales) {
-          isRemoteUpdateRef.current = true;
-          if (record.sales.lunch) setLunchSales(record.sales.lunch);
-          if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-          if (record.sales.night) setNightSales(record.sales.night);
-          if (record.reviews) {
-            if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-            if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-            if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-            if (record.reviews.details) {
-              setReviewDetails(record.reviews.details);
-              setIsReviewsLocked(record.reviews.details.isLocked || false);
-            }
+          // Update history list safely in background
+          const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+          const idx = savedReports.findIndex(r => r.date === selectedDate);
+          if (idx >= 0) {
+            savedReports[idx] = record;
+          } else {
+            savedReports.unshift(record);
           }
-          if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-          if (record.discount) setDiscountStatus(record.discount);
+          localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
+          window.dispatchEvent(new Event('storage'));
 
-          setToastMessage(`⚡ 다른 사용자의 실시간 업데이트/확정이 반영되었습니다.`);
-          setTimeout(() => setToastMessage(''), 3000);
+          const hasLocalDraft = localStorage.getItem(`daily_report_draft_${selectedDate}`);
+          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
 
-          setTimeout(() => {
-            isRemoteUpdateRef.current = false;
-          }, 400);
+          // Protect user inputs: Only update form state if user has no local inputs/draft for this date
+          if (!hasLocalDraft && !hasLocalInput) {
+            isRemoteUpdateRef.current = true;
+            if (record.sales.lunch) setLunchSales(record.sales.lunch);
+            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
+            if (record.sales.night) setNightSales(record.sales.night);
+            if (record.reviews) {
+              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
+              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
+              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
+              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
+              if (record.reviews.details) {
+                setReviewDetails(record.reviews.details);
+                setIsReviewsLocked(record.reviews.details.isLocked || false);
+              }
+            }
+            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
+            if (record.discount) setDiscountStatus(record.discount);
+
+            setTimeout(() => {
+              isRemoteUpdateRef.current = false;
+            }, 400);
+          }
         }
       }
     }, (error) => {
@@ -339,63 +328,152 @@ export default function DailyReport() {
     }
   }, [selectedDate]);
 
-  // Auto-save draft locally and sync to Firestore in real-time on state change
-  const syncToFirestore = async (customOverrides = {}) => {
-    if (isRemoteUpdateRef.current) return;
+  // Helper to build the current complete report object
+  const buildCurrentReportObject = (overrides?: {
+    lunch?: typeof lunchSales;
+    dinner?: typeof dinnerSales;
+    night?: typeof nightSales;
+    reviews?: {
+      kindness: typeof reviewKindness;
+      delicious: typeof reviewDelicious;
+      normal: typeof reviewNormal;
+      uncomfortable: typeof reviewUncomfortable;
+      details: typeof reviewDetails;
+      isLocked?: boolean;
+    };
+    discount?: typeof discountStatus;
+    fridgeTemps?: typeof fridgeTemps;
+  }): DailyReportRecord => {
+    const today = selectedDate;
+    const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
+    const nowTimeStr = new Date().toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const daysKor = ['일', '월', '화', '수', '목', '금', '토'];
+    const [curYear, curMon, curDay] = today.split('-').map(Number);
+    const targetKorDay = daysKor[new Date(curYear, curMon - 1, curDay).getDay()] || '월';
+
+    const currentLunch = overrides?.lunch || lunchSales;
+    const currentDinner = overrides?.dinner || dinnerSales;
+    const currentNight = overrides?.night || nightSales;
+    const currentDiscount = overrides?.discount || discountStatus;
+    const currentFridge = overrides?.fridgeTemps || fridgeTemps;
+    
+    const curNetDinnerAmt = Math.max(0, parseAmount(currentDinner.amount) - parseAmount(currentLunch.amount));
+    const curNetDinnerCnt = Math.max(0, parseAmount(currentDinner.count) - parseAmount(currentLunch.count));
+    const curNetNightAmt = Math.max(0, parseAmount(currentNight.amount) - parseAmount(currentDinner.amount));
+    const curNetNightCnt = Math.max(0, parseAmount(currentNight.count) - parseAmount(currentDinner.count));
+
+    const curTotalAmount = parseAmount(currentLunch.amount) + curNetDinnerAmt + curNetNightAmt;
+    const curTotalCount = parseAmount(currentLunch.count) + curNetDinnerCnt + curNetNightCnt;
+
+    const currentReviews = overrides?.reviews ? {
+      kindness: overrides.reviews.kindness,
+      delicious: overrides.reviews.delicious,
+      normal: overrides.reviews.normal,
+      uncomfortable: overrides.reviews.uncomfortable,
+      details: { ...overrides.reviews.details, isLocked: overrides.reviews.isLocked ?? isReviewsLocked },
+      totalReviews: parseAmount(overrides.reviews.kindness.count) + 
+                    parseAmount(overrides.reviews.delicious.count) + 
+                    parseAmount(overrides.reviews.normal.count) + 
+                    parseAmount(overrides.reviews.uncomfortable.count)
+    } : {
+      kindness: reviewKindness,
+      delicious: reviewDelicious,
+      normal: reviewNormal,
+      uncomfortable: reviewUncomfortable,
+      details: { ...reviewDetails, isLocked: isReviewsLocked },
+      totalReviews
+    };
+
+    return {
+      id: today,
+      date: today,
+      dayOfWeek: targetKorDay,
+      writer: authorName,
+      savedAt: nowTimeStr,
+      sales: {
+        lunch: currentLunch,
+        dinner: currentDinner,
+        night: currentNight,
+        netDinnerAmount: curNetDinnerAmt,
+        netDinnerCount: curNetDinnerCnt,
+        netNightAmount: curNetNightAmt,
+        netNightCount: curNetNightCnt,
+        totalAmount: curTotalAmount,
+        totalCount: curTotalCount,
+        avgTicket: curTotalCount > 0 ? Math.round(curTotalAmount / curTotalCount) : 0
+      },
+      reviews: currentReviews,
+      discount: currentDiscount,
+      fridgeTemps: currentFridge
+    };
+  };
+
+  // Explicit Save Handler called ONLY when user clicks [확정], [수정], [확인], [전체 확정]
+  const saveConfirmedSection = async (
+    reportPayload: DailyReportRecord,
+    message: string
+  ) => {
     try {
       const today = selectedDate;
-      const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
-      const nowTimeStr = new Date().toLocaleString('ko-KR', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-      const daysKor = ['일', '월', '화', '수', '목', '금', '토'];
-      const [curYear, curMon, curDay] = today.split('-').map(Number);
-      const targetKorDay = daysKor[new Date(curYear, curMon - 1, curDay).getDay()] || '월';
 
-      const draftRecord = {
-        id: today,
-        date: today,
-        dayOfWeek: targetKorDay,
-        writer: authorName,
-        savedAt: nowTimeStr,
-        sales: {
-          lunch: lunchSales,
-          dinner: dinnerSales,
-          night: nightSales,
-          netDinnerAmount,
-          netDinnerCount,
-          netNightAmount,
-          netNightCount,
-          totalAmount,
-          totalCount,
-          avgTicket: totalCount > 0 ? Math.round(totalAmount / totalCount) : 0
-        },
-        reviews: {
-          kindness: reviewKindness,
-          delicious: reviewDelicious,
-          normal: reviewNormal,
-          uncomfortable: reviewUncomfortable,
-          details: reviewDetails,
-          totalReviews
-        },
-        discount: discountStatus,
-        fridgeTemps,
-        updatedAt: Timestamp.now(),
-        ...customOverrides
+      // 1. Update dailyReportsHistory for instant reflected charts & calendar
+      const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+      const idx = savedReports.findIndex(r => r.date === today);
+      if (idx >= 0) {
+        savedReports[idx] = {
+          ...savedReports[idx],
+          ...reportPayload,
+          sales: { ...savedReports[idx].sales, ...reportPayload.sales },
+          reviews: { ...savedReports[idx].reviews, ...reportPayload.reviews },
+          discount: { ...savedReports[idx].discount, ...reportPayload.discount },
+          fridgeTemps: { ...savedReports[idx].fridgeTemps, ...reportPayload.fridgeTemps }
+        };
+      } else {
+        savedReports.unshift(reportPayload);
+      }
+      localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
+      window.dispatchEvent(new Event('storage'));
+
+      // 2. Keep local draft updated with newest state
+      const stateObj = {
+        lunchSales: reportPayload.sales.lunch,
+        dinnerSales: reportPayload.sales.dinner,
+        nightSales: reportPayload.sales.night,
+        reviewKindness: reportPayload.reviews.kindness,
+        reviewDelicious: reportPayload.reviews.delicious,
+        reviewNormal: reportPayload.reviews.normal,
+        reviewUncomfortable: reportPayload.reviews.uncomfortable,
+        reviewDetails: reportPayload.reviews.details,
+        isReviewsLocked: reportPayload.reviews.details?.isLocked || false,
+        fridgeTemps: reportPayload.fridgeTemps,
+        discountStatus: reportPayload.discount
       };
+      localStorage.setItem(`daily_report_draft_${today}`, JSON.stringify(stateObj));
 
-      await setDoc(doc(db, 'dailyReports', today), draftRecord, { merge: true });
-    } catch (e) {
-      console.warn('Realtime cloud sync error:', e);
+      // 3. Save to Firestore DB explicitly
+      await setDoc(doc(db, 'dailyReports', today), {
+        ...reportPayload,
+        updatedAt: Timestamp.now()
+      }, { merge: true });
+
+      setToastMessage(message);
+      setTimeout(() => setToastMessage(''), 2500);
+    } catch (err) {
+      console.error('Error saving confirmed section:', err);
+      setToastMessage('저장 중 문제가 발생했습니다.');
+      setTimeout(() => setToastMessage(''), 2500);
     }
   };
 
+  // Keep draft updated locally only (for browser refresh safety, without calling cloud or overwriting history)
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
     const stateObj = {
@@ -412,13 +490,6 @@ export default function DailyReport() {
       discountStatus
     };
     localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
-
-    // Debounced real-time Firestore sync so other users see updates and confirm statuses instantly
-    const timer = setTimeout(() => {
-      syncToFirestore();
-    }, 600);
-
-    return () => clearTimeout(timer);
   }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
 
 
@@ -493,10 +564,11 @@ export default function DailyReport() {
       dayOfWeek: targetKorDay,
       writer: authorName,
       savedAt: nowTimeStr,
+      isConfirmed: true,
       sales: { 
-        lunch: lunchSales, 
-        dinner: dinnerSales, 
-        night: nightSales,
+        lunch: { ...lunchSales, isLocked: true }, 
+        dinner: { ...dinnerSales, isLocked: true }, 
+        night: { ...nightSales, isLocked: true },
         netDinnerAmount,
         netDinnerCount,
         netNightAmount,
@@ -507,15 +579,15 @@ export default function DailyReport() {
       },
       improvements: improvementsList,
       reviews: { 
-        kindness: reviewKindness, 
-        delicious: reviewDelicious, 
-        normal: reviewNormal, 
-        uncomfortable: reviewUncomfortable, 
-        details: reviewDetails,
+        kindness: { ...reviewKindness, isLocked: true }, 
+        delicious: { ...reviewDelicious, isLocked: true }, 
+        normal: { ...reviewNormal, isLocked: true }, 
+        uncomfortable: { ...reviewUncomfortable, isLocked: true }, 
+        details: { ...reviewDetails, isLocked: true },
         totalReviews
       },
-      discount: discountStatus,
-      fridgeTemps,
+      discount: { ...discountStatus, isLocked: true },
+      fridgeTemps: { ...fridgeTemps, isLocked: true },
       announcements: announcements.text,
       complaints: allComplaints,
       interviews: allInterviews,
@@ -605,29 +677,19 @@ export default function DailyReport() {
     setLunchSales(initSales);
     setDinnerSales(initSales);
     setNightSales(initSales);
-    localStorage.setItem('lunchSales', JSON.stringify(initSales));
-    localStorage.setItem('dinnerSales', JSON.stringify(initSales));
-    localStorage.setItem('nightSales', JSON.stringify(initSales));
 
     const initReviews = { count: '', isLocked: false };
     setReviewKindness(initReviews);
     setReviewDelicious(initReviews);
     setReviewNormal(initReviews);
     setReviewUncomfortable(initReviews);
-    localStorage.setItem('reviewKindness', JSON.stringify(initReviews));
-    localStorage.setItem('reviewDelicious', JSON.stringify(initReviews));
-    localStorage.setItem('reviewNormal', JSON.stringify(initReviews));
-    localStorage.setItem('reviewUncomfortable', JSON.stringify(initReviews));
 
     const initReviewDetails = { service: '', facility: '', food: '', other: '', note: '', isLocked: false };
     setReviewDetails(initReviewDetails);
     setIsReviewsLocked(false);
-    localStorage.setItem('reviewDetails', JSON.stringify(initReviewDetails));
-    localStorage.setItem('isReviewsLocked', 'false');
 
     const initFridgeTemps = { kitchen1: '', kitchen2: '', hall1: '', hall2: '', drink: '', alcohol: '', storage1: '', storage2: '', isLocked: false };
     setFridgeTemps(initFridgeTemps);
-    localStorage.setItem('fridgeTemps', JSON.stringify(initFridgeTemps));
 
     const initDiscount = {
       marketing: { amount: '', count: '' },
@@ -636,7 +698,6 @@ export default function DailyReport() {
       isLocked: false
     };
     setDiscountStatus(initDiscount);
-    localStorage.setItem('discountStatus', JSON.stringify(initDiscount));
 
     // Update active state in component
     setCurrentBusinessDate(nextDateStr);
@@ -736,22 +797,36 @@ export default function DailyReport() {
           <h2 className="text-2xl font-bold text-gray-800 tracking-tight">영업 일보 대시보드</h2>
           <p className="text-sm text-gray-500 mt-1">오늘 하루의 영업 현황을 한눈에 파악하고 관리하세요.</p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 flex-1 md:flex-none">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 flex-1 md:flex-none">
             <Calendar className="w-4 h-4 text-gray-500 mr-2" />
             <input 
               type="date" 
               className="bg-transparent border-none outline-none text-sm font-medium text-gray-700 w-full cursor-pointer" 
               value={currentBusinessDate}
               onChange={(e) => {
-                if (e.target.value) {
-                  setCurrentBusinessDate(e.target.value);
-                  localStorage.setItem('activeReportDate', e.target.value);
+                const newDate = e.target.value;
+                if (newDate) {
+                  setCurrentBusinessDate(newDate);
+                  localStorage.setItem('activeReportDate', newDate);
+                  window.dispatchEvent(new Event('storage'));
                 }
               }}
               title="영업일 선택"
             />
           </div>
+          <button 
+            onClick={() => {
+              const today = getTodayKST();
+              setCurrentBusinessDate(today);
+              localStorage.setItem('activeReportDate', today);
+              window.dispatchEvent(new Event('storage'));
+            }}
+            className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors whitespace-nowrap"
+            title="오늘 날짜로 이동"
+          >
+            오늘
+          </button>
           <div>
             <button onClick={handleSaveDailyReport} className="bg-rose-400 hover:bg-rose-500 text-white px-5 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow-md font-medium whitespace-nowrap">
               <Save className="w-4 h-4" />
@@ -795,9 +870,29 @@ export default function DailyReport() {
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span> 점심 매출 (15:00)
                 </h4>
                 {lunchSales.isLocked ? (
-                  <button onClick={() => setLunchSales({...lunchSales, isLocked: false})} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg hover:bg-gray-200 transition-colors">수정</button>
+                  <button 
+                    onClick={() => {
+                      const newLunch = { ...lunchSales, isLocked: false };
+                      setLunchSales(newLunch);
+                      const payload = buildCurrentReportObject({ lunch: newLunch });
+                      saveConfirmedSection(payload, '점심 매출이 수정 모드로 전환되었습니다.');
+                    }} 
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                  >
+                    수정
+                  </button>
                 ) : (
-                  <button onClick={() => setLunchSales({...lunchSales, isLocked: true})} className="text-[10px] bg-rose-400 text-white px-2 py-1 rounded-lg hover:bg-rose-500 transition-colors">확정</button>
+                  <button 
+                    onClick={() => {
+                      const newLunch = { ...lunchSales, isLocked: true };
+                      setLunchSales(newLunch);
+                      const payload = buildCurrentReportObject({ lunch: newLunch });
+                      saveConfirmedSection(payload, '점심 매출이 확정 및 저장되었습니다.');
+                    }} 
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                  >
+                    확정
+                  </button>
                 )}
               </div>
               <div className="space-y-2">
@@ -827,9 +922,29 @@ export default function DailyReport() {
                   <span className="w-2.5 h-2.5 rounded-full bg-indigo-400"></span> 저녁 매출 (22:00)
                 </h4>
                 {dinnerSales.isLocked ? (
-                  <button onClick={() => setDinnerSales({...dinnerSales, isLocked: false})} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg hover:bg-gray-200 transition-colors">수정</button>
+                  <button 
+                    onClick={() => {
+                      const newDinner = { ...dinnerSales, isLocked: false };
+                      setDinnerSales(newDinner);
+                      const payload = buildCurrentReportObject({ dinner: newDinner });
+                      saveConfirmedSection(payload, '저녁 매출이 수정 모드로 전환되었습니다.');
+                    }} 
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                  >
+                    수정
+                  </button>
                 ) : (
-                  <button onClick={() => setDinnerSales({...dinnerSales, isLocked: true})} className="text-[10px] bg-rose-400 text-white px-2 py-1 rounded-lg hover:bg-rose-500 transition-colors">확정</button>
+                  <button 
+                    onClick={() => {
+                      const newDinner = { ...dinnerSales, isLocked: true };
+                      setDinnerSales(newDinner);
+                      const payload = buildCurrentReportObject({ dinner: newDinner });
+                      saveConfirmedSection(payload, '저녁 매출이 확정 및 저장되었습니다.');
+                    }} 
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                  >
+                    확정
+                  </button>
                 )}
               </div>
               <div className="space-y-2">
@@ -865,9 +980,29 @@ export default function DailyReport() {
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span> 야간 매출 (10:00)
                 </h4>
                 {nightSales.isLocked ? (
-                  <button onClick={() => setNightSales({...nightSales, isLocked: false})} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-lg hover:bg-gray-200 transition-colors">수정</button>
+                  <button 
+                    onClick={() => {
+                      const newNight = { ...nightSales, isLocked: false };
+                      setNightSales(newNight);
+                      const payload = buildCurrentReportObject({ night: newNight });
+                      saveConfirmedSection(payload, '야간 매출이 수정 모드로 전환되었습니다.');
+                    }} 
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                  >
+                    수정
+                  </button>
                 ) : (
-                  <button onClick={() => setNightSales({...nightSales, isLocked: true})} className="text-[10px] bg-rose-400 text-white px-2 py-1 rounded-lg hover:bg-rose-500 transition-colors">확정</button>
+                  <button 
+                    onClick={() => {
+                      const newNight = { ...nightSales, isLocked: true };
+                      setNightSales(newNight);
+                      const payload = buildCurrentReportObject({ night: newNight });
+                      saveConfirmedSection(payload, '야간 매출이 확정 및 저장되었습니다.');
+                    }} 
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                  >
+                    확정
+                  </button>
                 )}
               </div>
               <div className="space-y-2">
@@ -907,9 +1042,29 @@ export default function DailyReport() {
             </h3>
             <div className="flex items-center gap-2">
               {discountStatus.isLocked ? (
-                <button onClick={() => setDiscountStatus({...discountStatus, isLocked: false})} className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors">수정</button>
+                <button 
+                  onClick={() => {
+                    const newDiscount = { ...discountStatus, isLocked: false };
+                    setDiscountStatus(newDiscount);
+                    const payload = buildCurrentReportObject({ discount: newDiscount });
+                    saveConfirmedSection(payload, '할인 및 서비스 현황이 수정 모드로 전환되었습니다.');
+                  }} 
+                  className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                >
+                  수정
+                </button>
               ) : (
-                <button onClick={() => setDiscountStatus({...discountStatus, isLocked: true})} className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors">확정</button>
+                <button 
+                  onClick={() => {
+                    const newDiscount = { ...discountStatus, isLocked: true };
+                    setDiscountStatus(newDiscount);
+                    const payload = buildCurrentReportObject({ discount: newDiscount });
+                    saveConfirmedSection(payload, '할인 및 서비스 현황이 확정 및 저장되었습니다.');
+                  }} 
+                  className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                >
+                  확정
+                </button>
               )}
             </div>
           </div>
@@ -1026,7 +1181,35 @@ export default function DailyReport() {
                 <span className="text-sm sm:text-lg font-black text-amber-700">{totalReviews}개</span>
               </div>
               <button 
-                onClick={() => setIsReviewsLocked(!isReviewsLocked)}
+                onClick={() => {
+                  const willLock = !isReviewsLocked;
+                  setIsReviewsLocked(willLock);
+                  const newDetails = { ...reviewDetails, isLocked: willLock };
+                  setReviewDetails(newDetails);
+                  const newKindness = { ...reviewKindness, isLocked: willLock };
+                  const newDelicious = { ...reviewDelicious, isLocked: willLock };
+                  const newNormal = { ...reviewNormal, isLocked: willLock };
+                  const newUncomfortable = { ...reviewUncomfortable, isLocked: willLock };
+                  setReviewKindness(newKindness);
+                  setReviewDelicious(newDelicious);
+                  setReviewNormal(newNormal);
+                  setReviewUncomfortable(newUncomfortable);
+
+                  const payload = buildCurrentReportObject({
+                    reviews: {
+                      kindness: newKindness,
+                      delicious: newDelicious,
+                      normal: newNormal,
+                      uncomfortable: newUncomfortable,
+                      details: newDetails,
+                      isLocked: willLock
+                    }
+                  });
+                  saveConfirmedSection(
+                    payload,
+                    willLock ? '리뷰 관리가 전체 확정 및 저장되었습니다.' : '리뷰 관리가 수정 모드로 전환되었습니다.'
+                  );
+                }}
                 className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${
                   isReviewsLocked 
                     ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
@@ -1153,9 +1336,29 @@ export default function DailyReport() {
               매장 일일 냉장고 온도체크
             </h3>
             {fridgeTemps.isLocked ? (
-              <button onClick={() => setFridgeTemps({...fridgeTemps, isLocked: false})} className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors">수정</button>
+              <button 
+                onClick={() => {
+                  const newFridge = { ...fridgeTemps, isLocked: false };
+                  setFridgeTemps(newFridge);
+                  const payload = buildCurrentReportObject({ fridgeTemps: newFridge });
+                  saveConfirmedSection(payload, '냉장고 온도체크가 수정 모드로 전환되었습니다.');
+                }} 
+                className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+              >
+                수정
+              </button>
             ) : (
-              <button onClick={() => setFridgeTemps({...fridgeTemps, isLocked: true})} className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors">확인</button>
+              <button 
+                onClick={() => {
+                  const newFridge = { ...fridgeTemps, isLocked: true };
+                  setFridgeTemps(newFridge);
+                  const payload = buildCurrentReportObject({ fridgeTemps: newFridge });
+                  saveConfirmedSection(payload, '냉장고 온도체크가 확인 및 저장되었습니다.');
+                }} 
+                className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+              >
+                확인
+              </button>
             )}
           </div>
           <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 p-4 rounded-xl border transition-all ${fridgeTemps.isLocked ? 'bg-white border-teal-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>

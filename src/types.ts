@@ -60,6 +60,7 @@ export interface DailyReportRecord {
   dayOfWeek?: string; // 월, 화, 수, 목, 금, 토, 일
   writer?: string;
   savedAt?: string;
+  isConfirmed?: boolean;
   sales: {
     lunch: SalesSlot;
     dinner: SalesSlot;
