@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
@@ -213,58 +213,10 @@ export default function DailyReport() {
     }
   };
 
-  // Global collection sync for all daily reports across users
-  useEffect(() => {
-    try {
-      const reportsRef = collection(db, 'dailyReports');
-      const unsubscribeAll = onSnapshot(reportsRef, (snapshot) => {
-        const firestoreList: DailyReportRecord[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreList.push({
-            id: docSnap.id,
-            ...(docSnap.data() as any)
-          });
-        });
-        if (firestoreList.length > 0) {
-          const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-          const combinedMap = new Map<string, DailyReportRecord>();
-          localData.forEach(r => combinedMap.set(r.date, r));
-          firestoreList.forEach(r => combinedMap.set(r.date, r));
-          const merged = Array.from(combinedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(merged));
-          window.dispatchEvent(new Event('storage'));
-        }
-      }, (err) => {
-        console.warn('Global dailyReports sync note:', err);
-      });
-      return () => {
-        unsubscribeAll();
-      };
-    } catch (e) {
-      console.warn('Global dailyReports sync error:', e);
-    }
-  }, []);
-
+  // On-demand fetch cloud data for selectedDate when changing date or manual sync
   useEffect(() => {
     isInitializedFromCloudRef.current = false;
     fetchCloudData(true);
-    const docRef = doc(db, 'dailyReports', selectedDate);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      isInitializedFromCloudRef.current = true;
-      // If user is currently focused on any input or textarea, or typing, NEVER overwrite state
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true')) {
-        return;
-      }
-      // If user has local draft edits that are newer or currently being typed, do not overwrite unless forced
-      return;
-    }, (error) => {
-      console.error("DailyReport real-time sync error:", error);
-    });
-
-    return () => {
-      unsubscribe();
-    };
   }, [selectedDate]);
 
   // When date changes from outside, sync fields to that date

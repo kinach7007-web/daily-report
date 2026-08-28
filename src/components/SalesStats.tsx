@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, query } from 'firebase/firestore';
 import { 
   Calendar, 
   Info, 
@@ -184,34 +184,12 @@ export default function SalesStats() {
   useEffect(() => {
     loadHistory();
 
-    try {
-      const q = query(collection(db, 'dailyReports'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const firestoreReports: any[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreReports.push(docSnap.data());
-        });
-        if (firestoreReports.length > 0) {
-          setReportsHistory(firestoreReports);
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreReports));
-        }
-      }, (error) => {
-        console.error("Firestore snapshot error:", error);
-      });
+    const handleStorage = () => loadHistory();
+    window.addEventListener('storage', handleStorage);
 
-      const handleStorage = () => loadHistory();
-      window.addEventListener('storage', handleStorage);
-
-      return () => {
-        unsubscribe();
-        window.removeEventListener('storage', handleStorage);
-      };
-    } catch (e) {
-      console.error("Failed to setup firestore listener", e);
-      const handleStorage = () => loadHistory();
-      window.addEventListener('storage', handleStorage);
-      return () => window.removeEventListener('storage', handleStorage);
-    }
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const getReportForDate = (dateStr: string) => {
@@ -222,6 +200,42 @@ export default function SalesStats() {
     if (!val) return 0;
     if (typeof val === 'number') return val;
     return parseInt(val.toString().replace(/,/g, '')) || 0;
+  };
+
+  const getReportLunchAmount = (report: any) => {
+    if (!report) return 0;
+    return parseAmount(report.sales?.lunch?.amount || report.lunchSales?.amount);
+  };
+
+  const getReportDinnerAmount = (report: any) => {
+    if (!report) return 0;
+    if (report.sales?.netDinnerAmount !== undefined && report.sales?.netDinnerAmount !== null) {
+      return parseAmount(report.sales.netDinnerAmount);
+    }
+    const lunchAmt = getReportLunchAmount(report);
+    const rawDinner = parseAmount(report.sales?.dinner?.amount || report.dinnerSales?.amount);
+    return Math.max(0, rawDinner - lunchAmt);
+  };
+
+  const getReportNightAmount = (report: any) => {
+    if (!report) return 0;
+    if (report.sales?.netNightAmount !== undefined && report.sales?.netNightAmount !== null) {
+      return parseAmount(report.sales.netNightAmount);
+    }
+    const rawDinner = parseAmount(report.sales?.dinner?.amount || report.dinnerSales?.amount);
+    const rawNight = parseAmount(report.sales?.night?.amount || report.nightSales?.amount);
+    return Math.max(0, rawNight - rawDinner);
+  };
+
+  const getReportTotalAmount = (report: any) => {
+    if (!report) return 0;
+    if (report.sales?.totalAmount !== undefined && report.sales?.totalAmount !== null && report.sales?.totalAmount !== '') {
+      return parseAmount(report.sales.totalAmount);
+    }
+    const l = getReportLunchAmount(report);
+    const netD = getReportDinnerAmount(report);
+    const netN = getReportNightAmount(report);
+    return l + netD + netN;
   };
 
   const handleCellClick = (dateStr: string, dayName: string, report: any | null) => {
@@ -327,10 +341,7 @@ export default function SalesStats() {
               let mTotal = 0;
               let recordedDays = 0;
               reportsHistory.filter(r => r.date && r.date.startsWith(revMonthPrefix)).forEach(report => {
-                const l = parseAmount(report.sales?.lunch?.amount || report.lunchSales?.amount);
-                const d = parseAmount(report.sales?.dinner?.amount || report.dinnerSales?.amount);
-                const n = parseAmount(report.sales?.night?.amount || report.nightSales?.amount);
-                const sum = (l + d + n);
+                const sum = getReportTotalAmount(report);
                 mTotal += sum;
                 if (sum > 0) recordedDays++;
               });
@@ -378,10 +389,10 @@ export default function SalesStats() {
                 const isToday = isRevCurrentMonth && day === currentDay;
                 
                 const report = getReportForDate(dateStr);
-                const lunch = parseAmount(report?.sales?.lunch?.amount || report?.lunchSales?.amount);
-                const dinner = parseAmount(report?.sales?.dinner?.amount || report?.dinnerSales?.amount);
-                const night = parseAmount(report?.sales?.night?.amount || report?.nightSales?.amount);
-                const total = lunch + dinner + night;
+                const lunch = getReportLunchAmount(report);
+                const dinner = getReportDinnerAmount(report);
+                const night = getReportNightAmount(report);
+                const total = getReportTotalAmount(report);
                 const hasData = total > 0 || Boolean(report);
 
                 cells.push(
@@ -477,10 +488,10 @@ export default function SalesStats() {
               const dayName = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()];
               const isToday = isRevCurrentMonth && day === currentDay;
               const report = getReportForDate(dateStr);
-              const lunch = parseAmount(report?.sales?.lunch?.amount || report?.lunchSales?.amount);
-              const dinner = parseAmount(report?.sales?.dinner?.amount || report?.dinnerSales?.amount);
-              const night = parseAmount(report?.sales?.night?.amount || report?.nightSales?.amount);
-              const total = lunch + dinner + night;
+              const lunch = getReportLunchAmount(report);
+              const dinner = getReportDinnerAmount(report);
+              const night = getReportNightAmount(report);
+              const total = getReportTotalAmount(report);
 
               if (total === 0 && !report) return null;
 

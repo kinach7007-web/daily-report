@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import DailyReportViewer from './DailyReportViewer';
 import { 
@@ -42,38 +42,6 @@ export default function MonthlyReportList() {
       console.error('Local storage parse error:', e);
     }
 
-    // 2. Realtime listener from Firestore dailyReports
-    let unsubscribe = () => {};
-    try {
-      const reportsRef = collection(db, 'dailyReports');
-      unsubscribe = onSnapshot(reportsRef, (snapshot) => {
-        const firestoreList: DailyReportRecord[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreList.push({
-            id: docSnap.id,
-            ...(docSnap.data() as any)
-          });
-        });
-
-        if (firestoreList.length > 0) {
-          // Merge local + firestore (prefer firestore if conflict, ensure unique dates)
-          const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-          const combinedMap = new Map<string, DailyReportRecord>();
-          
-          localData.forEach(r => combinedMap.set(r.date, r));
-          firestoreList.forEach(r => combinedMap.set(r.date, r));
-
-          const merged = Array.from(combinedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-          setReports(merged);
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(merged));
-        }
-      }, (err) => {
-        console.warn('Firestore dailyReports sync note:', err);
-      });
-    } catch (err) {
-      console.warn('Firestore dailyReports listener error:', err);
-    }
-
     const handleStorageChange = () => {
       try {
         const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
@@ -83,7 +51,6 @@ export default function MonthlyReportList() {
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
-      unsubscribe();
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
