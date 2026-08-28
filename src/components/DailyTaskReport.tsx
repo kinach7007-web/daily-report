@@ -41,12 +41,16 @@ const getActiveBusinessDateLabel = () => {
         const m = parseInt(parts[1], 10);
         const d = parseInt(parts[2], 10);
         const dateObj = new Date(y, m - 1, d);
-        const days = ['일', '월', '화', '수', '목', '금', '토'];
-        return `${m}.${d}(${days[dateObj.getDay()]})`;
+        if (!isNaN(dateObj.getTime())) {
+          const days = ['일', '월', '화', '수', '목', '금', '토'];
+          return `${m}.${d}(${days[dateObj.getDay()]})`;
+        }
       }
     } catch (e) {}
   }
-  return getTodayLabel();
+  const now = new Date();
+  const days = ['일', '월', '화', '수', '목', '금', '토'];
+  return `${now.getMonth() + 1}.${now.getDate()}(${days[now.getDay()]})`;
 };
 
 export default function DailyTaskReport() {
