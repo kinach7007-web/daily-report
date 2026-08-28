@@ -53,40 +53,53 @@ export default function DailyReport() {
 
   // Load state from draft or dailyReportsHistory for specific date only
   const loadStateForDate = (date: string) => {
-    // 1. Check date-specific draft storage first
+    let draft: any = null;
     const draftStr = localStorage.getItem(`daily_report_draft_${date}`);
     if (draftStr) {
       try {
-        const parsed = JSON.parse(draftStr);
-        if (parsed) return parsed;
+        draft = JSON.parse(draftStr);
       } catch (e) {}
     }
 
-    // 2. Check dailyReportsHistory
     const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
     const record = savedReports.find(r => r.date === date);
-    if (record) {
+
+    // If both exist, merge smartly: Confirmed sections or non-empty sections from saved record take precedence if draft is empty/unlocked
+    const lunch = (record?.sales?.lunch?.isLocked ? record.sales.lunch : draft?.lunchSales) || record?.sales?.lunch || { amount: '', count: '', isLocked: false };
+    const dinner = (record?.sales?.dinner?.isLocked ? record.sales.dinner : draft?.dinnerSales) || record?.sales?.dinner || { amount: '', count: '', isLocked: false };
+    const night = (record?.sales?.night?.isLocked ? record.sales.night : draft?.nightSales) || record?.sales?.night || { amount: '', count: '', isLocked: false };
+
+    const reviewKindness = (record?.reviews?.kindness?.isLocked ? record.reviews.kindness : draft?.reviewKindness) || record?.reviews?.kindness || { count: '', isLocked: false };
+    const reviewDelicious = (record?.reviews?.delicious?.isLocked ? record.reviews.delicious : draft?.reviewDelicious) || record?.reviews?.delicious || { count: '', isLocked: false };
+    const reviewNormal = (record?.reviews?.normal?.isLocked ? record.reviews.normal : draft?.reviewNormal) || record?.reviews?.normal || { count: '', isLocked: false };
+    const reviewUncomfortable = (record?.reviews?.uncomfortable?.isLocked ? record.reviews.uncomfortable : draft?.reviewUncomfortable) || record?.reviews?.uncomfortable || { count: '', isLocked: false };
+    const reviewDetails = (record?.reviews?.details?.isLocked ? record.reviews.details : draft?.reviewDetails) || record?.reviews?.details || { service: '', facility: '', food: '', other: '', note: '', isLocked: false };
+    const isReviewsLocked = record?.reviews?.details?.isLocked ?? draft?.isReviewsLocked ?? false;
+
+    const fridgeTemps = (record?.fridgeTemps?.isLocked ? record.fridgeTemps : draft?.fridgeTemps) || record?.fridgeTemps || { kitchen1: '', kitchen2: '', hall1: '', hall2: '', drink: '', alcohol: '', storage1: '', storage2: '', isLocked: false };
+    const discountStatus = (record?.discount?.isLocked ? record.discount : draft?.discountStatus) || record?.discount || {
+      marketing: { amount: '', count: '' },
+      event: { amount: '', count: '' },
+      other: { amount: '', count: '', note: '' },
+      isLocked: false
+    };
+
+    if (draft || record) {
       return {
-        lunchSales: record.sales?.lunch || { amount: '', count: '', isLocked: false },
-        dinnerSales: record.sales?.dinner || { amount: '', count: '', isLocked: false },
-        nightSales: record.sales?.night || { amount: '', count: '', isLocked: false },
-        reviewKindness: record.reviews?.kindness || { count: '', isLocked: false },
-        reviewDelicious: record.reviews?.delicious || { count: '', isLocked: false },
-        reviewNormal: record.reviews?.normal || { count: '', isLocked: false },
-        reviewUncomfortable: record.reviews?.uncomfortable || { count: '', isLocked: false },
-        reviewDetails: record.reviews?.details || { service: '', facility: '', food: '', other: '', note: '', isLocked: false },
-        isReviewsLocked: record.reviews?.details?.isLocked || false,
-        fridgeTemps: record.fridgeTemps || { kitchen1: '', kitchen2: '', hall1: '', hall2: '', drink: '', alcohol: '', storage1: '', storage2: '', isLocked: false },
-        discountStatus: record.discount || {
-          marketing: { amount: '', count: '' },
-          event: { amount: '', count: '' },
-          other: { amount: '', count: '', note: '' },
-          isLocked: false
-        }
+        lunchSales: lunch,
+        dinnerSales: dinner,
+        nightSales: night,
+        reviewKindness,
+        reviewDelicious,
+        reviewNormal,
+        reviewUncomfortable,
+        reviewDetails,
+        isReviewsLocked,
+        fridgeTemps,
+        discountStatus
       };
     }
 
-    // Do NOT fallback to global undated items (which caused old date values to leak into new dates)
     return null;
   };
 
@@ -167,31 +180,37 @@ export default function DailyReport() {
           localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
           window.dispatchEvent(new Event('storage'));
 
-          const hasLocalDraft = localStorage.getItem(`daily_report_draft_${selectedDate}`);
-          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
-
-          // Only overwrite form if forced or if there is no local input/draft and cloud has confirmed data
-          if (force && (!hasLocalInput || record.isConfirmed)) {
-            isRemoteUpdateRef.current = true;
-            if (record.sales.lunch) setLunchSales(record.sales.lunch);
-            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-            if (record.sales.night) setNightSales(record.sales.night);
-            if (record.reviews) {
-              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-              if (record.reviews.details) {
-                setReviewDetails(record.reviews.details);
-                setIsReviewsLocked(record.reviews.details.isLocked || false);
-              }
-            }
-            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-            if (record.discount) setDiscountStatus(record.discount);
-            setTimeout(() => {
-              isRemoteUpdateRef.current = false;
-            }, 400);
+          // Update form state with latest cloud record
+          isRemoteUpdateRef.current = true;
+          if (record.sales?.lunch) {
+            setLunchSales(prev => (record.sales.lunch.isLocked || !prev.isLocked || force) ? record.sales.lunch : prev);
           }
+          if (record.sales?.dinner) {
+            setDinnerSales(prev => (record.sales.dinner.isLocked || !prev.isLocked || force) ? record.sales.dinner : prev);
+          }
+          if (record.sales?.night) {
+            setNightSales(prev => (record.sales.night.isLocked || !prev.isLocked || force) ? record.sales.night : prev);
+          }
+          if (record.reviews) {
+            const isServerReviewsLocked = record.reviews.details?.isLocked;
+            if (record.reviews.kindness) setReviewKindness(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.kindness : prev);
+            if (record.reviews.delicious) setReviewDelicious(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.delicious : prev);
+            if (record.reviews.normal) setReviewNormal(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.normal : prev);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.uncomfortable : prev);
+            if (record.reviews.details) {
+              setReviewDetails(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.details : prev);
+              setIsReviewsLocked(isServerReviewsLocked || false);
+            }
+          }
+          if (record.fridgeTemps) {
+            setFridgeTemps(prev => (record.fridgeTemps?.isLocked || !prev.isLocked || force) ? record.fridgeTemps : prev);
+          }
+          if (record.discount) {
+            setDiscountStatus(prev => (record.discount?.isLocked || !prev.isLocked || force) ? record.discount : prev);
+          }
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 300);
         }
       }
     } catch (e) {
@@ -254,32 +273,56 @@ export default function DailyReport() {
           localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
           window.dispatchEvent(new Event('storage'));
 
-          const hasLocalDraft = localStorage.getItem(`daily_report_draft_${selectedDate}`);
-          const hasLocalInput = lunchSales.amount || dinnerSales.amount || nightSales.amount;
-
-          // Protect user inputs: Only update form state if user has no local inputs/draft for this date
-          if (!hasLocalDraft && !hasLocalInput) {
-            isRemoteUpdateRef.current = true;
-            if (record.sales.lunch) setLunchSales(record.sales.lunch);
-            if (record.sales.dinner) setDinnerSales(record.sales.dinner);
-            if (record.sales.night) setNightSales(record.sales.night);
-            if (record.reviews) {
-              if (record.reviews.kindness) setReviewKindness(record.reviews.kindness);
-              if (record.reviews.delicious) setReviewDelicious(record.reviews.delicious);
-              if (record.reviews.normal) setReviewNormal(record.reviews.normal);
-              if (record.reviews.uncomfortable) setReviewUncomfortable(record.reviews.uncomfortable);
-              if (record.reviews.details) {
-                setReviewDetails(record.reviews.details);
-                setIsReviewsLocked(record.reviews.details.isLocked || false);
-              }
-            }
-            if (record.fridgeTemps) setFridgeTemps(record.fridgeTemps);
-            if (record.discount) setDiscountStatus(record.discount);
-
-            setTimeout(() => {
-              isRemoteUpdateRef.current = false;
-            }, 400);
+          // Smart section-by-section sync:
+          // If a section is locked/confirmed on the server, or if the local section is unlocked and not actively being typed in, update it!
+          isRemoteUpdateRef.current = true;
+          
+          if (record.sales?.lunch) {
+            setLunchSales(prev => (record.sales.lunch.isLocked || !prev.isLocked) ? record.sales.lunch : prev);
           }
+          if (record.sales?.dinner) {
+            setDinnerSales(prev => (record.sales.dinner.isLocked || !prev.isLocked) ? record.sales.dinner : prev);
+          }
+          if (record.sales?.night) {
+            setNightSales(prev => (record.sales.night.isLocked || !prev.isLocked) ? record.sales.night : prev);
+          }
+          if (record.reviews) {
+            const isServerReviewsLocked = record.reviews.details?.isLocked;
+            if (record.reviews.kindness) setReviewKindness(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.kindness : prev);
+            if (record.reviews.delicious) setReviewDelicious(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.delicious : prev);
+            if (record.reviews.normal) setReviewNormal(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.normal : prev);
+            if (record.reviews.uncomfortable) setReviewUncomfortable(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.uncomfortable : prev);
+            if (record.reviews.details) {
+              setReviewDetails(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.details : prev);
+              setIsReviewsLocked(isServerReviewsLocked || false);
+            }
+          }
+          if (record.fridgeTemps) {
+            setFridgeTemps(prev => (record.fridgeTemps?.isLocked || !prev.isLocked) ? record.fridgeTemps : prev);
+          }
+          if (record.discount) {
+            setDiscountStatus(prev => (record.discount?.isLocked || !prev.isLocked) ? record.discount : prev);
+          }
+
+          // Update the local draft file to stay consistent
+          const mergedStateObj = {
+            lunchSales: record.sales?.lunch || lunchSales,
+            dinnerSales: record.sales?.dinner || dinnerSales,
+            nightSales: record.sales?.night || nightSales,
+            reviewKindness: record.reviews?.kindness || reviewKindness,
+            reviewDelicious: record.reviews?.delicious || reviewDelicious,
+            reviewNormal: record.reviews?.normal || reviewNormal,
+            reviewUncomfortable: record.reviews?.uncomfortable || reviewUncomfortable,
+            reviewDetails: record.reviews?.details || reviewDetails,
+            isReviewsLocked: record.reviews?.details?.isLocked ?? isReviewsLocked,
+            fridgeTemps: record.fridgeTemps || fridgeTemps,
+            discountStatus: record.discount || discountStatus
+          };
+          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(mergedStateObj));
+
+          setTimeout(() => {
+            isRemoteUpdateRef.current = false;
+          }, 300);
         }
       }
     }, (error) => {
