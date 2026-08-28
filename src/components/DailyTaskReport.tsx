@@ -31,33 +31,11 @@ const getTodayLabel = () => {
   return `${d.getMonth() + 1}.${d.getDate()}(${days[d.getDay()]})`;
 };
 
-const getActiveBusinessDateLabel = () => {
-  const active = localStorage.getItem('activeReportDate');
-  if (active) {
-    try {
-      const parts = active.split('-');
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        const d = parseInt(parts[2], 10);
-        const dateObj = new Date(y, m - 1, d);
-        if (!isNaN(dateObj.getTime())) {
-          const days = ['일', '월', '화', '수', '목', '금', '토'];
-          return `${m}.${d}(${days[dateObj.getDay()]})`;
-        }
-      }
-    } catch (e) {}
-  }
-  const now = new Date();
-  const days = ['일', '월', '화', '수', '목', '금', '토'];
-  return `${now.getMonth() + 1}.${now.getDate()}(${days[now.getDay()]})`;
-};
-
 export default function DailyTaskReport() {
   const { currentUser } = useAuth();
 
   // --- Open Report State ---
-  const [openDate, setOpenDate] = useState(() => getActiveBusinessDateLabel());
+  const [openDate, setOpenDate] = useState(() => getTodayLabel());
   const [openWriter, setOpenWriter] = useState(() => currentUser?.name || '');
   const [openNight, setOpenNight] = useState('');
   const [openDelivery, setOpenDelivery] = useState('');
@@ -83,7 +61,7 @@ export default function DailyTaskReport() {
   const [openEtc, setOpenEtc] = useState('');
 
   // --- Close Report State ---
-  const [closeDate, setCloseDate] = useState(() => getActiveBusinessDateLabel());
+  const [closeDate, setCloseDate] = useState(() => getTodayLabel());
   const [closeWriter, setCloseWriter] = useState(() => currentUser?.name || '');
   const [closeLunch, setCloseLunch] = useState('');
   const [closeDayDelivery, setCloseDayDelivery] = useState('');
@@ -117,9 +95,9 @@ export default function DailyTaskReport() {
   // Restore from localStorage
   useEffect(() => {
     try {
-      const activeLabel = getActiveBusinessDateLabel();
-      setOpenDate(activeLabel);
-      setCloseDate(activeLabel);
+      const todayLabel = getTodayLabel();
+      setOpenDate(todayLabel);
+      setCloseDate(todayLabel);
 
       if (currentUser?.name) {
         if (!openWriter) setOpenWriter(currentUser.name);
@@ -129,7 +107,6 @@ export default function DailyTaskReport() {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        if (data.openDate) setOpenDate(data.openDate);
         if (data.openWriter) setOpenWriter(data.openWriter);
         if (data.openNight) setOpenNight(data.openNight);
         if (data.openDelivery) setOpenDelivery(data.openDelivery);
@@ -163,7 +140,6 @@ export default function DailyTaskReport() {
 
         if (data.openEtc) setOpenEtc(data.openEtc);
 
-        if (data.closeDate) setCloseDate(data.closeDate);
         if (data.closeWriter) setCloseWriter(data.closeWriter);
         if (data.closeLunch) setCloseLunch(data.closeLunch);
         if (data.closeDayDelivery) setCloseDayDelivery(data.closeDayDelivery);
@@ -228,7 +204,7 @@ export default function DailyTaskReport() {
 
   // Reset Handlers
   const handleResetOpen = () => {
-    setOpenDate(getActiveBusinessDateLabel());
+    setOpenDate(getTodayLabel());
     setOpenWriter(currentUser?.name || '');
     setOpenNight('');
     setOpenDelivery('');
@@ -252,7 +228,7 @@ export default function DailyTaskReport() {
   };
 
   const handleResetClose = () => {
-    setCloseDate(getActiveBusinessDateLabel());
+    setCloseDate(getTodayLabel());
     setCloseWriter(currentUser?.name || '');
     setCloseLunch('');
     setCloseDayDelivery('');

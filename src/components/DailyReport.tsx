@@ -28,10 +28,14 @@ export const Card = ({ children, className = '' }: { children: React.ReactNode, 
 
 export const getBusinessDate = () => {
   const formatStr = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dateStr = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${dateStr}`;
+    // Format using Korean timezone (Asia/Seoul)
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(d); // returns YYYY-MM-DD
   };
 
   // If there's an active business date set in storage, use it strictly
@@ -40,7 +44,7 @@ export const getBusinessDate = () => {
     return active;
   }
   
-  // If none set, initialize once and store in localStorage so it never drifts or auto-jumps
+  // If none set, initialize once in KST
   const now = new Date();
   const initialDate = formatStr(now);
   localStorage.setItem('activeReportDate', initialDate);
@@ -342,6 +346,7 @@ export default function DailyReport() {
       const today = selectedDate;
       const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
       const nowTimeStr = new Date().toLocaleString('ko-KR', {
+        timeZone: 'Asia/Seoul',
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',

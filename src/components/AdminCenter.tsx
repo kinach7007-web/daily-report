@@ -72,7 +72,15 @@ export default function AdminCenter() {
 
   useEffect(() => {
     loadHistory();
-    const handleStorage = () => loadHistory();
+    const handleStorage = () => {
+      loadHistory();
+      const bDate = getBusinessDate();
+      const [y, m] = bDate.split('-').map(Number);
+      if (y && m) {
+        setSelectedYear(y);
+        setSelectedMonth(m);
+      }
+    };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);

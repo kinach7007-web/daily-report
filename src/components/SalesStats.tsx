@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
+import { getBusinessDate } from './DailyReport';
 import { 
   Calendar, 
   Info, 
@@ -158,10 +159,11 @@ export default function SalesStats() {
   // View mode: 'calendar' | 'list'
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const currentDay = now.getDate();
+  const businessDate = getBusinessDate();
+  const [bYear, bMonth] = businessDate.split('-').map(Number);
+  const currentYear = bYear || new Date().getFullYear();
+  const currentMonth = bMonth || (new Date().getMonth() + 1);
+  const currentDay = new Date().getDate();
 
   // Individual month states for each dashboard
   const [revenueDate, setRevenueDate] = useState<MonthState>({ year: currentYear, month: currentMonth });
@@ -184,9 +186,10 @@ export default function SalesStats() {
   useEffect(() => {
     loadHistory();
 
+    let unsubscribe = () => {};
     try {
       const q = query(collection(db, 'dailyReports'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribe = onSnapshot(q, (snapshot) => {
         const firestoreReports: any[] = [];
         snapshot.forEach((docSnap) => {
           firestoreReports.push(docSnap.data());
@@ -198,20 +201,26 @@ export default function SalesStats() {
       }, (error) => {
         console.error("Firestore snapshot error:", error);
       });
-
-      const handleStorage = () => loadHistory();
-      window.addEventListener('storage', handleStorage);
-
-      return () => {
-        unsubscribe();
-        window.removeEventListener('storage', handleStorage);
-      };
     } catch (e) {
       console.error("Failed to setup firestore listener", e);
-      const handleStorage = () => loadHistory();
-      window.addEventListener('storage', handleStorage);
-      return () => window.removeEventListener('storage', handleStorage);
     }
+
+    const handleStorage = () => {
+      loadHistory();
+      const bDate = getBusinessDate();
+      const [y, m] = bDate.split('-').map(Number);
+      if (y && m) {
+        setRevenueDate({ year: y, month: m });
+        setDiscountDate({ year: y, month: m });
+        setReviewDate({ year: y, month: m });
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const getReportForDate = (dateStr: string) => {
