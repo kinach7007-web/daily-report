@@ -399,7 +399,7 @@ export default function SalesStats() {
           /* Calendar Grid */
           <div className="grid grid-cols-7 gap-1 sm:gap-1.5 bg-gray-100 p-1 sm:p-1.5 rounded-2xl border border-gray-200">
             {days.map((d) => (
-              <div key={d} className={`bg-gray-50/90 py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
+              <div key={d} className={`bg-gray-50/90 py-1.5 sm:py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
                 d === '토' ? 'text-blue-600' : d === '일' ? 'text-rose-600' : 'text-gray-700'
               }`}>
                 {d}
@@ -410,7 +410,7 @@ export default function SalesStats() {
               const cells = [];
               
               for (let i = 0; i < revFirstDayOfWeek; i++) {
-                cells.push(<div key={`empty-rev-${i}`} className="bg-gray-50/40 rounded-xl min-h-[70px] sm:h-28 md:h-36" />);
+                cells.push(<div key={`empty-rev-${i}`} className="bg-gray-50/40 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px]" />);
               }
               
               for (let day = 1; day <= revDaysInMonth; day++) {
@@ -430,7 +430,7 @@ export default function SalesStats() {
                   <div 
                     key={day} 
                     onClick={() => handleCellClick(dateStr, dayName, report)}
-                    className={`bg-white p-1 sm:p-2 rounded-xl min-h-[76px] sm:h-28 md:h-36 flex flex-col justify-between transition-all cursor-pointer select-none border ${
+                    className={`bg-white p-1 sm:p-1.5 md:p-2 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px] flex flex-col justify-between transition-all cursor-pointer select-none border overflow-hidden ${
                       isToday 
                         ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50/30' 
                         : hasData 
@@ -439,68 +439,68 @@ export default function SalesStats() {
                     }`}
                   >
                     {/* Top: Date & Badge */}
-                    <div className="flex justify-between items-center">
-                      <span className={`text-xs sm:text-sm font-black ${
+                    <div className="flex justify-between items-center gap-1">
+                      <span className={`text-xs sm:text-sm font-black leading-none ${
                         dayName === '토' ? 'text-blue-600' : dayName === '일' ? 'text-rose-600' : 'text-gray-900'
                       }`}>
                         {day}
                       </span>
                       {isToday && (
-                        <span className="text-[9px] bg-blue-600 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full">
+                        <span className="text-[8px] sm:text-[9px] bg-blue-600 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full shrink-0">
                           오늘
                         </span>
                       )}
                     </div>
                     
                     {/* Middle: Content */}
-                    <div className="my-auto flex flex-col justify-center">
+                    <div className="my-auto py-0.5 flex flex-col justify-center min-w-0 w-full">
                       {total > 0 ? (
                         <>
-                          {/* Mobile View: High-contrast large summary */}
-                          <div className="sm:hidden flex flex-col items-center justify-center py-0.5">
-                            <span className="text-[11px] font-black text-blue-700 leading-tight">
+                          {/* Mobile View: Compact summary */}
+                          <div className="sm:hidden flex flex-col items-center justify-center">
+                            <span className="text-[11px] font-black text-blue-700 leading-tight truncate max-w-full">
                               {(total / 10000).toFixed(1)}<span className="text-[9px] font-bold">만</span>
                             </span>
                             <div className="flex items-center gap-0.5 mt-0.5">
-                              {lunch > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="점심" />}
-                              {dinner > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" title="저녁" />}
-                              {night > 0 && <span className="w-1.5 h-1.5 rounded-full bg-purple-500" title="야간" />}
+                              {lunch > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="점심" />}
+                              {dinner > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" title="저녁" />}
+                              {night > 0 && <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" title="야간" />}
                             </div>
                           </div>
 
-                          {/* Tablet/Desktop View: Detailed Rows */}
-                          <div className="hidden sm:flex flex-col gap-1">
-                            <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100 text-[10px]">
-                              <span className="font-bold text-blue-700">점심</span>
-                              <span className="font-black text-blue-800">{(lunch/10000).toFixed(1)}만</span>
+                          {/* Tablet/Desktop View: Compact Rows with truncate protection */}
+                          <div className="hidden sm:flex flex-col gap-0.5 md:gap-1 w-full">
+                            <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-blue-700 shrink-0">점심</span>
+                              <span className="font-black text-blue-800 truncate ml-1">{(lunch/10000).toFixed(1)}만</span>
                             </div>
-                            <div className="flex items-center justify-between bg-indigo-50/90 px-1.5 py-0.5 rounded border border-indigo-100 text-[10px]">
-                              <span className="font-bold text-indigo-700">저녁</span>
-                              <span className="font-black text-indigo-800">{(dinner/10000).toFixed(1)}만</span>
+                            <div className="flex items-center justify-between bg-indigo-50/90 px-1.5 py-0.5 rounded border border-indigo-100/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-indigo-700 shrink-0">저녁</span>
+                              <span className="font-black text-indigo-800 truncate ml-1">{(dinner/10000).toFixed(1)}만</span>
                             </div>
                             {night > 0 && (
-                              <div className="flex items-center justify-between bg-purple-50/90 px-1.5 py-0.5 rounded border border-purple-100 text-[10px]">
-                                <span className="font-bold text-purple-700">야간</span>
-                                <span className="font-black text-purple-800">{(night/10000).toFixed(1)}만</span>
+                              <div className="flex items-center justify-between bg-purple-50/90 px-1.5 py-0.5 rounded border border-purple-100/80 text-[9px] md:text-[10px] min-w-0">
+                                <span className="font-bold text-purple-700 shrink-0">야간</span>
+                                <span className="font-black text-purple-800 truncate ml-1">{(night/10000).toFixed(1)}만</span>
                               </div>
                             )}
-                            <div className="flex items-center justify-between bg-blue-600 px-1.5 py-0.5 rounded shadow-2xs text-[10px]">
-                              <span className="font-bold text-white">합계</span>
-                              <span className="font-black text-white">{(total/10000).toFixed(1)}만</span>
+                            <div className="flex items-center justify-between bg-blue-600 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] min-w-0 shadow-2xs">
+                              <span className="font-bold text-white shrink-0">합계</span>
+                              <span className="font-black text-white truncate ml-1">{(total/10000).toFixed(1)}만</span>
                             </div>
                           </div>
                         </>
                       ) : (
-                        <div className="flex flex-col items-center justify-center py-2 opacity-15">
+                        <div className="flex flex-col items-center justify-center py-1 opacity-15">
                           <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
                         </div>
                       )}
                     </div>
 
                     {/* Bottom Indicator */}
-                    <div className="pt-0.5 text-right hidden sm:block">
+                    <div className="text-right hidden sm:block">
                       {hasData && (
-                        <span className="text-[8px] font-bold text-gray-400">상세보기</span>
+                        <span className="text-[8px] font-bold text-gray-400">상세</span>
                       )}
                     </div>
                   </div>
@@ -622,7 +622,7 @@ export default function SalesStats() {
         {/* Calendar Grid */}
         <div className="grid grid-cols-7 gap-1 sm:gap-1.5 bg-gray-100 p-1 sm:p-1.5 rounded-2xl border border-gray-200">
           {days.map((d) => (
-            <div key={d} className={`bg-gray-50/90 py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
+            <div key={d} className={`bg-gray-50/90 py-1.5 sm:py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
               d === '토' ? 'text-blue-600' : d === '일' ? 'text-rose-600' : 'text-gray-700'
             }`}>
               {d}
@@ -633,7 +633,7 @@ export default function SalesStats() {
             const cells = [];
             
             for (let i = 0; i < discFirstDayOfWeek; i++) {
-              cells.push(<div key={`empty-discount-${i}`} className="bg-gray-50/40 rounded-xl min-h-[70px] sm:h-28 md:h-36" />);
+              cells.push(<div key={`empty-discount-${i}`} className="bg-gray-50/40 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px]" />);
             }
             
             for (let day = 1; day <= discDaysInMonth; day++) {
@@ -655,7 +655,7 @@ export default function SalesStats() {
                 <div 
                   key={day} 
                   onClick={() => handleCellClick(dateStr, dayName, report)}
-                  className={`bg-white p-1 sm:p-2 rounded-xl min-h-[76px] sm:h-28 md:h-36 flex flex-col justify-between transition-all cursor-pointer select-none border ${
+                  className={`bg-white p-1 sm:p-1.5 md:p-2 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px] flex flex-col justify-between transition-all cursor-pointer select-none border overflow-hidden ${
                     isToday 
                       ? 'ring-2 ring-rose-500 border-rose-400 bg-rose-50/30' 
                       : hasData 
@@ -663,64 +663,70 @@ export default function SalesStats() {
                         : 'border-gray-100 hover:bg-gray-50/80'
                   }`}
                 >
-                  <div className="flex justify-between items-center">
-                    <span className={`text-xs sm:text-sm font-black ${
+                  <div className="flex justify-between items-center gap-1">
+                    <span className={`text-xs sm:text-sm font-black leading-none ${
                       dayName === '토' ? 'text-blue-600' : dayName === '일' ? 'text-rose-600' : 'text-gray-900'
                     }`}>
                       {day}
                     </span>
                     {isToday && (
-                      <span className="text-[9px] bg-rose-500 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full">
+                      <span className="text-[8px] sm:text-[9px] bg-rose-500 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full shrink-0">
                         오늘
                       </span>
                     )}
                   </div>
                   
-                  <div className="my-auto flex flex-col justify-center">
+                  <div className="my-auto py-0.5 flex flex-col justify-center min-w-0 w-full">
                     {total > 0 ? (
                       <>
                         {/* Mobile View */}
-                        <div className="sm:hidden flex flex-col items-center justify-center py-0.5">
-                          <span className="text-[11px] font-black text-rose-600 leading-tight">
+                        <div className="sm:hidden flex flex-col items-center justify-center">
+                          <span className="text-[11px] font-black text-rose-600 leading-tight truncate max-w-full">
                             {(total / 10000).toFixed(1)}<span className="text-[9px] font-bold">만</span>
                           </span>
                           <div className="flex items-center gap-0.5 mt-0.5">
-                            {mark > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="마케팅" />}
-                            {event > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="이벤트" />}
-                            {other > 0 && <span className="w-1.5 h-1.5 rounded-full bg-gray-500" title="기타" />}
+                            {mark > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="마케팅" />}
+                            {event > 0 && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="이벤트" />}
+                            {other > 0 && <span className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0" title="기타" />}
                           </div>
                         </div>
 
                         {/* Desktop View */}
-                        <div className="hidden sm:flex flex-col gap-1">
+                        <div className="hidden sm:flex flex-col gap-0.5 md:gap-1 w-full">
                           {mark > 0 && (
-                            <div className="flex items-center justify-between bg-emerald-50/90 px-1.5 py-0.5 rounded border border-emerald-100 text-[10px]">
-                              <span className="font-bold text-emerald-700">마케팅</span>
-                              <span className="font-black text-emerald-800">{(mark/10000).toFixed(1)}만</span>
+                            <div className="flex items-center justify-between bg-emerald-50/90 px-1.5 py-0.5 rounded border border-emerald-100/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-emerald-700 shrink-0">마케팅</span>
+                              <span className="font-black text-emerald-800 truncate ml-1">{(mark/10000).toFixed(1)}만</span>
                             </div>
                           )}
                           {event > 0 && (
-                            <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100 text-[10px]">
-                              <span className="font-bold text-blue-700">이벤트</span>
-                              <span className="font-black text-blue-800">{(event/10000).toFixed(1)}만</span>
+                            <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-blue-700 shrink-0">이벤트</span>
+                              <span className="font-black text-blue-800 truncate ml-1">{(event/10000).toFixed(1)}만</span>
                             </div>
                           )}
-                          <div className="flex items-center justify-between bg-rose-500 px-1.5 py-0.5 rounded shadow-2xs text-[10px]">
-                            <span className="font-bold text-white">할인합계</span>
-                            <span className="font-black text-white">{(total/10000).toFixed(1)}만</span>
+                          {other > 0 && (
+                            <div className="flex items-center justify-between bg-gray-100/90 px-1.5 py-0.5 rounded border border-gray-200/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-gray-600 shrink-0">기타</span>
+                              <span className="font-black text-gray-800 truncate ml-1">{(other/10000).toFixed(1)}만</span>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between bg-rose-500 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] min-w-0 shadow-2xs">
+                            <span className="font-bold text-white shrink-0">할인합계</span>
+                            <span className="font-black text-white truncate ml-1">{(total/10000).toFixed(1)}만</span>
                           </div>
                         </div>
                       </>
                     ) : (
-                      <div className="flex flex-col items-center justify-center py-2 opacity-15">
+                      <div className="flex flex-col items-center justify-center py-1 opacity-15">
                         <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
                       </div>
                     )}
                   </div>
 
-                  <div className="pt-0.5 text-right hidden sm:block">
+                  <div className="text-right hidden sm:block">
                     {hasData && (
-                      <span className="text-[8px] font-bold text-gray-400">상세보기</span>
+                      <span className="text-[8px] font-bold text-gray-400">상세</span>
                     )}
                   </div>
                 </div>
@@ -796,7 +802,7 @@ export default function SalesStats() {
         {/* Calendar Grid */}
         <div className="grid grid-cols-7 gap-1 sm:gap-1.5 bg-gray-100 p-1 sm:p-1.5 rounded-2xl border border-gray-200">
           {days.map((d) => (
-            <div key={d} className={`bg-gray-50/90 py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
+            <div key={d} className={`bg-gray-50/90 py-1.5 sm:py-2 text-center text-[11px] sm:text-xs font-black rounded-lg ${
               d === '토' ? 'text-blue-600' : d === '일' ? 'text-rose-600' : 'text-gray-700'
             }`}>
               {d}
@@ -807,7 +813,7 @@ export default function SalesStats() {
             const cells = [];
             
             for (let i = 0; i < revwFirstDayOfWeek; i++) {
-              cells.push(<div key={`empty-review-${i}`} className="bg-gray-50/40 rounded-xl min-h-[70px] sm:h-28 md:h-36" />);
+              cells.push(<div key={`empty-review-${i}`} className="bg-gray-50/40 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px]" />);
             }
             
             for (let day = 1; day <= revwDaysInMonth; day++) {
@@ -833,7 +839,7 @@ export default function SalesStats() {
                 <div 
                   key={day} 
                   onClick={() => handleCellClick(dateStr, dayName, report)}
-                  className={`bg-white p-1 sm:p-2 rounded-xl min-h-[76px] sm:h-28 md:h-36 flex flex-col justify-between transition-all cursor-pointer select-none border ${
+                  className={`bg-white p-1 sm:p-1.5 md:p-2 rounded-xl min-h-[72px] sm:min-h-[115px] md:min-h-[130px] flex flex-col justify-between transition-all cursor-pointer select-none border overflow-hidden ${
                     isToday 
                       ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-50/30' 
                       : hasData 
@@ -841,35 +847,35 @@ export default function SalesStats() {
                         : 'border-gray-100 hover:bg-gray-50/80'
                   }`}
                 >
-                  <div className="flex justify-between items-center">
-                    <span className={`text-xs sm:text-sm font-black ${
+                  <div className="flex justify-between items-center gap-1">
+                    <span className={`text-xs sm:text-sm font-black leading-none ${
                       dayName === '토' ? 'text-blue-600' : dayName === '일' ? 'text-rose-600' : 'text-gray-900'
                     }`}>
                       {day}
                     </span>
                     {isToday && (
-                      <span className="text-[9px] bg-amber-500 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full">
+                      <span className="text-[8px] sm:text-[9px] bg-amber-500 text-white font-black px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded-full shrink-0">
                         오늘
                       </span>
                     )}
                   </div>
                   
-                  <div className="my-auto flex flex-col justify-center">
+                  <div className="my-auto py-0.5 flex flex-col justify-center min-w-0 w-full">
                     {total > 0 ? (
                       <>
                         {/* Mobile View */}
-                        <div className="sm:hidden flex flex-col items-center justify-center py-0.5">
-                          <span className="text-[11px] font-black text-gray-900 leading-tight">
+                        <div className="sm:hidden flex flex-col items-center justify-center">
+                          <span className="text-[11px] font-black text-gray-900 leading-tight truncate max-w-full">
                             총 {total}건
                           </span>
-                          <div className="flex items-center gap-1 mt-0.5">
+                          <div className="flex items-center gap-0.5 mt-0.5">
                             {positive > 0 && (
-                              <span className="text-[9px] font-black text-blue-600 bg-blue-50 px-1 rounded">
+                              <span className="text-[8px] font-black text-blue-600 bg-blue-50 px-1 py-0.2 rounded">
                                 +{positive}
                               </span>
                             )}
                             {uncomfortable > 0 && (
-                              <span className="text-[9px] font-black text-red-600 bg-red-50 px-1 rounded">
+                              <span className="text-[8px] font-black text-red-600 bg-red-50 px-1 py-0.2 rounded">
                                 -{uncomfortable}
                               </span>
                             )}
@@ -877,33 +883,33 @@ export default function SalesStats() {
                         </div>
 
                         {/* Desktop View */}
-                        <div className="hidden sm:flex flex-col gap-1">
-                          <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100 text-[10px]">
-                            <span className="font-bold text-blue-700">긍정</span>
-                            <span className="font-black text-blue-800">{positive}건</span>
+                        <div className="hidden sm:flex flex-col gap-0.5 md:gap-1 w-full">
+                          <div className="flex items-center justify-between bg-blue-50/90 px-1.5 py-0.5 rounded border border-blue-100/80 text-[9px] md:text-[10px] min-w-0">
+                            <span className="font-bold text-blue-700 shrink-0">긍정</span>
+                            <span className="font-black text-blue-800 truncate ml-1">+{positive}건</span>
                           </div>
                           {uncomfortable > 0 && (
-                            <div className="flex items-center justify-between bg-red-50/90 px-1.5 py-0.5 rounded border border-red-100 text-[10px]">
-                              <span className="font-bold text-red-700">불편</span>
-                              <span className="font-black text-red-800">{uncomfortable}건</span>
+                            <div className="flex items-center justify-between bg-red-50/90 px-1.5 py-0.5 rounded border border-red-100/80 text-[9px] md:text-[10px] min-w-0">
+                              <span className="font-bold text-red-700 shrink-0">불편</span>
+                              <span className="font-black text-red-800 truncate ml-1">-{uncomfortable}건</span>
                             </div>
                           )}
-                          <div className="flex items-center justify-between bg-gray-900 px-1.5 py-0.5 rounded shadow-2xs text-[10px]">
-                            <span className="font-bold text-white">총 리뷰</span>
-                            <span className="font-black text-white">{total}건</span>
+                          <div className="flex items-center justify-between bg-gray-900 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] min-w-0 shadow-2xs">
+                            <span className="font-bold text-white shrink-0">총 리뷰</span>
+                            <span className="font-black text-white truncate ml-1">{total}건</span>
                           </div>
                         </div>
                       </>
                     ) : (
-                      <div className="flex flex-col items-center justify-center py-2 opacity-15">
+                      <div className="flex flex-col items-center justify-center py-1 opacity-15">
                         <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
                       </div>
                     )}
                   </div>
 
-                  <div className="pt-0.5 text-right hidden sm:block">
+                  <div className="text-right hidden sm:block">
                     {hasData && (
-                      <span className="text-[8px] font-bold text-gray-400">상세보기</span>
+                      <span className="text-[8px] font-bold text-gray-400">상세</span>
                     )}
                   </div>
                 </div>

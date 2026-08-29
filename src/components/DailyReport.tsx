@@ -220,6 +220,40 @@ export default function DailyReport() {
     }
   };
 
+  // Real-time synchronization listener for system business status (active business date & closing across all users)
+  useEffect(() => {
+    try {
+      const statusDocRef = doc(db, 'system', 'businessStatus');
+      const unsubscribeStatus = onSnapshot(statusDocRef, (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.activeBusinessDate) {
+            const newActiveDate = data.activeBusinessDate;
+            const currentActiveInStorage = localStorage.getItem('activeReportDate');
+            
+            if (currentActiveInStorage !== newActiveDate || currentBusinessDate !== newActiveDate) {
+              localStorage.setItem('activeReportDate', newActiveDate);
+              window.dispatchEvent(new Event('storage'));
+              setCurrentBusinessDate(newActiveDate);
+
+              if (data.lastClosedDate) {
+                setToastMessage(`📢 ${data.closedBy || '영업담당자'}님이 ${data.lastClosedDate} 영업을 마감하여 ${newActiveDate} 영업일로 전환되었습니다.`);
+                setTimeout(() => setToastMessage(''), 5000);
+              }
+            }
+          }
+        }
+      }, (err) => {
+        console.warn('System businessStatus sync note:', err);
+      });
+      return () => {
+        unsubscribeStatus();
+      };
+    } catch (e) {
+      console.warn('System businessStatus listener setup error:', e);
+    }
+  }, [currentBusinessDate]);
+
   // Real-time synchronization listener for all daily reports across users
   useEffect(() => {
     try {
@@ -768,12 +802,21 @@ export default function DailyReport() {
       await addDoc(collection(db, 'reports'), {
         writer: authorName,
         type: '영업일보',
-        title: '영업일보 대시보드 저장',
+        title: '영업일보 대시보드 마감',
         date: today,
         totalSales: reportData.sales.totalAmount,
         totalCount: reportData.sales.totalCount,
         createdAt: Timestamp.now()
       });
+
+      // Update global store business status in Firestore to instantly transition all connected users/devices
+      await setDoc(doc(db, 'system', 'businessStatus'), {
+        activeBusinessDate: nextDateStr,
+        lastClosedDate: today,
+        lastClosedAt: Timestamp.now(),
+        closedBy: authorName
+      }, { merge: true });
+
       localStorage.removeItem(`daily_report_draft_${today}`);
     } catch (e) {
       console.error('Firestore sync failed', e);
