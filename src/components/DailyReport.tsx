@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, getDoc, getDocs, onSnapshot, Timestamp } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
@@ -222,9 +222,58 @@ export default function DailyReport() {
 
   // Real-time synchronization listener for system business status (active business date & closing across all users)
   useEffect(() => {
+    let unsubscribeStatus: (() => void) | null = null;
     try {
       const statusDocRef = doc(db, 'system', 'businessStatus');
-      const unsubscribeStatus = onSnapshot(statusDocRef, (snap) => {
+
+      // Immediate initial check on mount to ensure external/shared users immediately sync
+      getDoc(statusDocRef).then(async (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.activeBusinessDate) {
+            const newActiveDate = data.activeBusinessDate;
+            localStorage.setItem('activeReportDate', newActiveDate);
+            window.dispatchEvent(new Event('storage'));
+            setCurrentBusinessDate(newActiveDate);
+          }
+        } else {
+          // If system/businessStatus doesn't exist yet, check the latest confirmed daily report in Firestore
+          try {
+            const reportsRef = collection(db, 'dailyReports');
+            const reportsSnap = await getDocs(reportsRef);
+            let latestConfirmedDate = '';
+            reportsSnap.forEach(docSnap => {
+              const rep = docSnap.data() as DailyReportRecord;
+              if (rep && rep.isConfirmed && docSnap.id > latestConfirmedDate) {
+                latestConfirmedDate = docSnap.id;
+              }
+            });
+            if (latestConfirmedDate) {
+              const [y, m, d] = latestConfirmedDate.split('-').map(Number);
+              const target = new Date(y, m - 1, d);
+              target.setDate(target.getDate() + 1);
+              const nextDateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+              
+              await setDoc(statusDocRef, {
+                activeBusinessDate: nextDateStr,
+                lastClosedDate: latestConfirmedDate,
+                lastClosedAt: Timestamp.now(),
+                closedBy: '시스템 동기화'
+              }, { merge: true });
+
+              localStorage.setItem('activeReportDate', nextDateStr);
+              window.dispatchEvent(new Event('storage'));
+              setCurrentBusinessDate(nextDateStr);
+            }
+          } catch (scanErr) {
+            console.warn('Initial cloud scan warning:', scanErr);
+          }
+        }
+      }).catch(err => {
+        console.warn('Initial businessStatus fetch error:', err);
+      });
+
+      unsubscribeStatus = onSnapshot(statusDocRef, (snap) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data?.activeBusinessDate) {
@@ -246,13 +295,13 @@ export default function DailyReport() {
       }, (err) => {
         console.warn('System businessStatus sync note:', err);
       });
-      return () => {
-        unsubscribeStatus();
-      };
     } catch (e) {
       console.warn('System businessStatus listener setup error:', e);
     }
-  }, [currentBusinessDate]);
+    return () => {
+      if (unsubscribeStatus) unsubscribeStatus();
+    };
+  }, []);
 
   // Real-time synchronization listener for all daily reports across users
   useEffect(() => {
@@ -571,8 +620,30 @@ export default function DailyReport() {
 
 
 
+  const savedReportsHistory: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+  const currentRecord = savedReportsHistory.find(r => r.date === currentBusinessDate);
+  const isCurrentDateConfirmed = Boolean(currentRecord?.isConfirmed);
+
   const handleSaveDailyReport = async () => {
     const today = selectedDate;
+    
+    // Safety check: Prevent duplicate closing if already closed
+    if (isCurrentDateConfirmed) {
+      setToastMessage(`⚠️ ${today} 영업일은 이미 마감 완료되었습니다.`);
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
+    try {
+      const checkDoc = await getDoc(doc(db, 'dailyReports', today));
+      if (checkDoc.exists() && checkDoc.data()?.isConfirmed) {
+        setToastMessage(`⚠️ ${today} 영업일은 이미 마감 완료되었습니다.`);
+        setTimeout(() => setToastMessage(''), 3000);
+        return;
+      }
+    } catch (err) {
+      console.warn("Closing pre-check warning:", err);
+    }
     
     // Get all un-saved complaints, interviews, checklist
     const allComplaints = JSON.parse(localStorage.getItem('complaintsList') || '[]');
@@ -914,9 +985,26 @@ export default function DailyReport() {
             오늘
           </button>
           <div>
-            <button onClick={handleSaveDailyReport} className="bg-rose-400 hover:bg-rose-500 text-white px-5 py-2 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow-md font-medium whitespace-nowrap">
-              <Save className="w-4 h-4" />
-              마감
+            <button 
+              onClick={handleSaveDailyReport} 
+              disabled={isCurrentDateConfirmed}
+              className={`${
+                isCurrentDateConfirmed 
+                  ? 'bg-emerald-600 text-white cursor-default opacity-95' 
+                  : 'bg-rose-500 hover:bg-rose-600 text-white shadow-sm hover:shadow-md'
+              } px-4 sm:px-5 py-2 rounded-xl flex items-center gap-2 transition-all font-medium whitespace-nowrap text-sm`}
+            >
+              {isCurrentDateConfirmed ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>마감 완료</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>마감</span>
+                </>
+              )}
             </button>
           </div>
         </div>
