@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, limit, orderBy, Timestamp } from 'firebase/firestore';
 import { Bell, AlertTriangle, FileText, UserCheck, X, CheckCircle2, Share, DollarSign } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { registerFCMToken, subscribeForegroundMessages } from '../lib/fcm';
 
 interface NotificationItem {
   id: string;
@@ -81,6 +83,7 @@ const triggerVibration = () => {
 };
 
 export default function NotificationManager() {
+  const { currentUser } = useAuth();
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
@@ -101,6 +104,32 @@ export default function NotificationManager() {
   useEffect(() => {
     setIsIos(checkIsIos());
     setIsStandalone(checkIsStandalone());
+  }, []);
+
+  // Auto register/sync FCM Token when permission is granted and user is logged in
+  useEffect(() => {
+    if (permission === 'granted') {
+      registerFCMToken(currentUser).catch((err) => {
+        console.warn('[FCM] Auto-registration notice:', err);
+      });
+    }
+  }, [permission, currentUser]);
+
+  // Subscribe to FCM foreground messages
+  useEffect(() => {
+    let unsubscribeFCM: (() => void) | null = null;
+    subscribeForegroundMessages((payload) => {
+      if (payload.title) {
+        playNotificationSound();
+        triggerVibration();
+      }
+    }).then((unsub) => {
+      unsubscribeFCM = unsub;
+    });
+
+    return () => {
+      if (unsubscribeFCM) unsubscribeFCM();
+    };
   }, []);
 
   // Pre-unlock AudioContext on first user touch/interaction
@@ -242,6 +271,7 @@ export default function NotificationManager() {
       if (result === 'granted') {
         playNotificationSound();
         triggerVibration();
+        await registerFCMToken(currentUser);
         dispatchSystemNotification(
           '🔔 실시간 알림이 활성화되었습니다',
           '영업일보 마감, 컴플레인, 면접일지 등록 시 실시간으로 알림을 전송합니다.'
