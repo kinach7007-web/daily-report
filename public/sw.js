@@ -1,19 +1,50 @@
-// Service Worker for PWA
+// Service Worker for Mobile & Desktop Notifications and PWA
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Installed');
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener('fetch', (event) => {
-  // Pass through for now
+  // Pass through
+});
+
+// Allow client script to request SW notification display (Critical for Mobile Android / iOS)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, options } = event.data;
+    event.waitUntil(
+      self.registration.showNotification(title || '뼈반집 알림', {
+        body: options?.body || '',
+        icon: options?.icon || 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+        badge: options?.badge || 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+        vibrate: [200, 100, 200, 100, 200],
+        tag: options?.tag || `notification-${Date.now()}`,
+        renotify: true,
+        data: options?.data || '/',
+        requireInteraction: false
+      })
+    );
+  }
 });
 
 self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: '뼈반집 알림', body: event.data ? event.data.text() : '' };
+  }
   const title = data.title || '뼈반집 알림';
   const options = {
     body: data.body || '새로운 보고서가 도착했습니다.',
-    icon: '/icon-192x192.png',
-    badge: '/icon-192x192.png',
+    icon: 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+    badge: 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+    vibrate: [200, 100, 200, 100, 200],
+    tag: `push-${Date.now()}`,
+    renotify: true,
     data: data.url || '/'
   };
 
@@ -24,7 +55,18 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const urlToOpen = event.notification.data || '/';
   event.waitUntil(
-    clients.openWindow(event.notification.data)
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
   );
 });
+

@@ -545,7 +545,13 @@ export default function DailyReport() {
   // Explicit Save Handler called ONLY when user clicks [확정], [수정], [확인], [전체 확정]
   const saveConfirmedSection = async (
     reportPayload: DailyReportRecord,
-    message: string
+    message: string,
+    notificationMeta?: {
+      slotName?: string;
+      actionType?: '확정' | '수정';
+      amount?: string;
+      count?: string;
+    }
   ) => {
     try {
       const today = selectedDate;
@@ -589,6 +595,27 @@ export default function DailyReport() {
         ...reportPayload,
         updatedAt: Timestamp.now()
       }, { merge: true });
+
+      // 4. Trigger global notification to all users if notificationMeta is provided
+      if (notificationMeta?.slotName && notificationMeta?.actionType) {
+        const authorName = currentUser ? `${currentUser.name} (${currentUser.role})` : '영업담당자';
+        const notifTitle = `💰 [매출 ${notificationMeta.actionType}] ${notificationMeta.slotName} 매출 ${notificationMeta.actionType}`;
+        const amtStr = notificationMeta.amount ? `${Number(notificationMeta.amount.replace(/[^0-9]/g, '') || 0).toLocaleString()}원` : '0원';
+        const cntStr = notificationMeta.count ? `${notificationMeta.count}건` : '';
+        
+        await addDoc(collection(db, 'reports'), {
+          writer: authorName,
+          type: '시간대매출',
+          actionType: notificationMeta.actionType,
+          slotName: notificationMeta.slotName,
+          title: notifTitle,
+          date: today,
+          amount: amtStr,
+          count: cntStr,
+          message: `${authorName}님이 ${today} ${notificationMeta.slotName} 매출을 [${notificationMeta.actionType}]했습니다. (${amtStr}${cntStr ? `, ${cntStr}` : ''})`,
+          createdAt: Timestamp.now()
+        });
+      }
 
       setToastMessage(message);
       setTimeout(() => setToastMessage(''), 2500);
@@ -1049,9 +1076,14 @@ export default function DailyReport() {
                       const newLunch = { ...lunchSales, isLocked: false };
                       setLunchSales(newLunch);
                       const payload = buildCurrentReportObject({ lunch: newLunch });
-                      saveConfirmedSection(payload, '점심 매출이 수정 모드로 전환되었습니다.');
+                      saveConfirmedSection(payload, '점심 매출이 수정 모드로 전환되었습니다.', {
+                        slotName: '점심 (15:00)',
+                        actionType: '수정',
+                        amount: newLunch.amount,
+                        count: newLunch.count
+                      });
                     }} 
-                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold cursor-pointer"
                   >
                     수정
                   </button>
@@ -1061,9 +1093,14 @@ export default function DailyReport() {
                       const newLunch = { ...lunchSales, isLocked: true };
                       setLunchSales(newLunch);
                       const payload = buildCurrentReportObject({ lunch: newLunch });
-                      saveConfirmedSection(payload, '점심 매출이 확정 및 저장되었습니다.');
+                      saveConfirmedSection(payload, '점심 매출이 확정 및 저장되었습니다.', {
+                        slotName: '점심 (15:00)',
+                        actionType: '확정',
+                        amount: newLunch.amount,
+                        count: newLunch.count
+                      });
                     }} 
-                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm cursor-pointer"
                   >
                     확정
                   </button>
@@ -1101,9 +1138,14 @@ export default function DailyReport() {
                       const newDinner = { ...dinnerSales, isLocked: false };
                       setDinnerSales(newDinner);
                       const payload = buildCurrentReportObject({ dinner: newDinner });
-                      saveConfirmedSection(payload, '저녁 매출이 수정 모드로 전환되었습니다.');
+                      saveConfirmedSection(payload, '저녁 매출이 수정 모드로 전환되었습니다.', {
+                        slotName: '저녁 (22:00)',
+                        actionType: '수정',
+                        amount: `${netDinnerAmount}`,
+                        count: `${netDinnerCount}`
+                      });
                     }} 
-                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold cursor-pointer"
                   >
                     수정
                   </button>
@@ -1113,9 +1155,14 @@ export default function DailyReport() {
                       const newDinner = { ...dinnerSales, isLocked: true };
                       setDinnerSales(newDinner);
                       const payload = buildCurrentReportObject({ dinner: newDinner });
-                      saveConfirmedSection(payload, '저녁 매출이 확정 및 저장되었습니다.');
+                      saveConfirmedSection(payload, '저녁 매출이 확정 및 저장되었습니다.', {
+                        slotName: '저녁 (22:00)',
+                        actionType: '확정',
+                        amount: `${netDinnerAmount}`,
+                        count: `${netDinnerCount}`
+                      });
                     }} 
-                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm cursor-pointer"
                   >
                     확정
                   </button>
@@ -1159,9 +1206,14 @@ export default function DailyReport() {
                       const newNight = { ...nightSales, isLocked: false };
                       setNightSales(newNight);
                       const payload = buildCurrentReportObject({ night: newNight });
-                      saveConfirmedSection(payload, '야간 매출이 수정 모드로 전환되었습니다.');
+                      saveConfirmedSection(payload, '야간 매출이 수정 모드로 전환되었습니다.', {
+                        slotName: '야간 (10:00)',
+                        actionType: '수정',
+                        amount: `${netNightAmount}`,
+                        count: `${netNightCount}`
+                      });
                     }} 
-                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                    className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors font-semibold cursor-pointer"
                   >
                     수정
                   </button>
@@ -1171,9 +1223,14 @@ export default function DailyReport() {
                       const newNight = { ...nightSales, isLocked: true };
                       setNightSales(newNight);
                       const payload = buildCurrentReportObject({ night: newNight });
-                      saveConfirmedSection(payload, '야간 매출이 확정 및 저장되었습니다.');
+                      saveConfirmedSection(payload, '야간 매출이 확정 및 저장되었습니다.', {
+                        slotName: '야간 (10:00)',
+                        actionType: '확정',
+                        amount: `${netNightAmount}`,
+                        count: `${netNightCount}`
+                      });
                     }} 
-                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                    className="text-[10px] bg-rose-400 text-white px-2.5 py-1 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm cursor-pointer"
                   >
                     확정
                   </button>
