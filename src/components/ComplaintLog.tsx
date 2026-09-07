@@ -4,6 +4,7 @@ import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 
 export default function ComplaintLog() {
   const { currentUser } = useAuth();
@@ -114,6 +115,10 @@ export default function ComplaintLog() {
     // Sync to Firestore for real-time notification
     try {
       const author = currentUser ? `${currentUser.name} (${currentUser.role})` : (formData.manager || '담당자');
+      const problemSummary = formData.problem.length > 30 ? formData.problem.slice(0, 30) + '...' : formData.problem;
+      const notifTitle = '🚨 [컴플레인] 새 컴플레인 등록 알림';
+      const notifBody = `${author}님이 [${formData.category || '고객 클레임'}] 새 컴플레인을 등록했습니다. "${problemSummary}"`;
+
       addDoc(collection(db, 'reports'), {
         writer: author,
         type: '컴플레인',
@@ -125,6 +130,14 @@ export default function ComplaintLog() {
         problem: formData.problem,
         createdAt: Timestamp.now()
       });
+
+      // Background Web Push to all devices
+      dispatchBackgroundPushToAll({
+        title: notifTitle,
+        body: notifBody,
+        type: '컴플레인',
+        tag: `complaint-${Date.now()}`
+      }).catch((e) => console.warn('Background push dispatch error:', e));
     } catch (e) {
       console.error('Complaint real-time notification failed:', e);
     }

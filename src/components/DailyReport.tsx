@@ -4,6 +4,7 @@ import { collection, addDoc, doc, setDoc, getDoc, getDocs, onSnapshot, Timestamp
 import { DailyReportRecord } from '../types';
 import { useAuth } from '../context/AuthContext';
 import CheerModal from './CheerModal';
+import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 import { 
   Save, 
   Megaphone, 
@@ -603,6 +604,7 @@ export default function DailyReport() {
         const amtStr = notificationMeta.amount ? `${Number(notificationMeta.amount.replace(/[^0-9]/g, '') || 0).toLocaleString()}원` : '0원';
         const cntStr = notificationMeta.count ? `${notificationMeta.count}건` : '';
         
+        const notifBody = `${authorName}님이 ${today} ${notificationMeta.slotName} 매출을 [${notificationMeta.actionType}]했습니다. (${amtStr}${cntStr ? `, ${cntStr}` : ''})`;
         await addDoc(collection(db, 'reports'), {
           writer: authorName,
           type: '시간대매출',
@@ -612,9 +614,17 @@ export default function DailyReport() {
           date: today,
           amount: amtStr,
           count: cntStr,
-          message: `${authorName}님이 ${today} ${notificationMeta.slotName} 매출을 [${notificationMeta.actionType}]했습니다. (${amtStr}${cntStr ? `, ${cntStr}` : ''})`,
+          message: notifBody,
           createdAt: Timestamp.now()
         });
+
+        // Background Web Push to all devices
+        dispatchBackgroundPushToAll({
+          title: notifTitle,
+          body: notifBody,
+          type: '시간대매출',
+          tag: `sales-${today}-${Date.now()}`
+        }).catch((e) => console.warn('Background push dispatch error:', e));
       }
 
       setToastMessage(message);
@@ -897,6 +907,10 @@ export default function DailyReport() {
     // Sync to Firestore for persistence & notifications
     try {
       await setDoc(doc(db, 'dailyReports', today), reportData, { merge: true });
+      const salesFormatted = reportData.sales.totalAmount ? `${Number(reportData.sales.totalAmount).toLocaleString()}원` : '확인';
+      const closingTitle = '📊 [영업일보] 대시보드 마감 알림';
+      const closingBody = `${authorName}님이 ${today} 영업일보를 마감·저장했습니다. (총매출: ${salesFormatted})`;
+
       await addDoc(collection(db, 'reports'), {
         writer: authorName,
         type: '영업일보',
@@ -906,6 +920,14 @@ export default function DailyReport() {
         totalCount: reportData.sales.totalCount,
         createdAt: Timestamp.now()
       });
+
+      // Background Web Push to all devices
+      dispatchBackgroundPushToAll({
+        title: closingTitle,
+        body: closingBody,
+        type: '영업일보',
+        tag: `closing-${today}-${Date.now()}`
+      }).catch((e) => console.warn('Background push dispatch error:', e));
 
       // Update global store business status in Firestore to instantly transition all connected users/devices
       await setDoc(doc(db, 'system', 'businessStatus'), {

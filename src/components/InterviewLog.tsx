@@ -4,6 +4,7 @@ import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 
 export default function InterviewLog() {
   const { currentUser } = useAuth();
@@ -119,6 +120,9 @@ export default function InterviewLog() {
     // Sync to Firestore for real-time notification
     try {
       const author = currentUser ? `${currentUser.name} (${currentUser.role})` : (formData.interviewer || '면접관');
+      const notifTitle = '👥 [면접일지] 면접일지 저장 알림';
+      const notifBody = `${author}님이 지원자 [${formData.applicant}]님의 면접일지를 저장했습니다.`;
+
       addDoc(collection(db, 'reports'), {
         writer: author,
         type: '면접일지',
@@ -129,6 +133,14 @@ export default function InterviewLog() {
         evaluation: formData.evaluation || '',
         createdAt: Timestamp.now()
       });
+
+      // Background Web Push to all devices
+      dispatchBackgroundPushToAll({
+        title: notifTitle,
+        body: notifBody,
+        type: '면접일지',
+        tag: `interview-${Date.now()}`
+      }).catch((e) => console.warn('Background push dispatch error:', e));
     } catch (e) {
       console.error('Interview real-time notification failed:', e);
     }
