@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Save, AlertCircle, Calendar, ChevronLeft, ChevronRight, RotateCcw, Filter } from 'lucide-react';
+import { 
+  Plus, 
+  Save, 
+  AlertCircle, 
+  Calendar, 
+  ChevronLeft, 
+  ChevronRight, 
+  RotateCcw, 
+  Filter,
+  Send,
+  Copy,
+  Check,
+  X,
+  MessageSquareQuote
+} from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
 import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -12,6 +26,12 @@ export default function ComplaintLog() {
   const [selectedComplaint, setSelectedComplaint] = useState<any | null>(null);
   const [complaints, setComplaints] = useState<any[]>([]);
   const [toastMessage, setToastMessage] = useState('');
+
+  // Preview & Copy Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalContent, setModalContent] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
   
   // Current year & month for default filter
   const todayBusiness = getBusinessDate();
@@ -156,7 +176,7 @@ export default function ComplaintLog() {
       const notifTitle = '🚨 [컴플레인] 새 컴플레인 등록 알림';
       const notifBody = `${author}님이 [${formData.category || '고객 클레임'}] 새 컴플레인을 등록했습니다. "${problemSummary}"`;
 
-      addDoc(collection(db, 'reports'), {
+      await addDoc(collection(db, 'reports'), {
         writer: author,
         type: '컴플레인',
         title: '새 컴플레인 등록',
@@ -168,8 +188,8 @@ export default function ComplaintLog() {
         createdAt: Timestamp.now()
       });
 
-      // Background Web Push to all devices
-      dispatchBackgroundPushToAll({
+      // Background Web Push to all devices (await delivery to server)
+      await dispatchBackgroundPushToAll({
         title: notifTitle,
         body: notifBody,
         type: '컴플레인',
@@ -177,6 +197,63 @@ export default function ComplaintLog() {
       }).catch((e) => console.warn('Background push dispatch error:', e));
     } catch (e) {
       console.error('Complaint real-time notification failed:', e);
+    }
+  };
+
+  // Build KakaoTalk text for Complaint
+  const buildComplaintReportText = (c: any) => {
+    const lines: string[] = [];
+    lines.push('[뼈반집 컴플레인 접수 및 대응 보고]');
+    lines.push(`■ 일시: ${c.date || '-'} ${c.time || ''}`.trim());
+    lines.push(`■ 테이블: ${c.table || '-'}`);
+    lines.push(`■ 담당자: ${c.manager || '-'}`);
+    lines.push(`■ 항목: ${c.category || '-'} (3단계 준수: ${c.step3 || '-'})`);
+    lines.push('');
+    lines.push('[문제점 (클레임 내용)]');
+    lines.push(c.problem || '-');
+    lines.push('');
+    lines.push('[대응 및 조치 내용]');
+    lines.push(`▶ 1단계 (최초 대응): ${c.step1Action || '-'}`);
+    lines.push(`▶ 2단계 (책임자 대응): ${c.step2Action || '-'}`);
+    lines.push(`▶ 3단계 (카운터 대응): ${c.step3Action || '-'}`);
+    return lines.join('\n');
+  };
+
+  const openPreviewModal = (c: any) => {
+    setModalTitle(`컴플레인 카톡문 미리보기 (${c.date || ''} ${c.table ? `${c.table}` : ''})`.trim());
+    setModalContent(buildComplaintReportText(c));
+    setIsCopied(false);
+    setIsModalOpen(true);
+  };
+
+  const handleCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(modalContent).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      }).catch(() => {
+        fallbackCopy(modalContent);
+      });
+    } else {
+      fallbackCopy(modalContent);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (e) {
+      console.warn('Fallback copy failed:', e);
     }
   };
 
@@ -189,14 +266,24 @@ export default function ComplaintLog() {
       )}
       {selectedComplaint ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center gap-4">
-            <button 
-              onClick={() => setSelectedComplaint(null)}
-              className="text-gray-500 hover:text-gray-800 transition-colors"
+          <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setSelectedComplaint(null)}
+                className="text-gray-500 hover:text-gray-800 transition-colors cursor-pointer font-medium text-sm"
+              >
+                ← 뒤로 가기
+              </button>
+              <h3 className="font-semibold text-gray-800">컴플레인 상세 내용</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => openPreviewModal(selectedComplaint)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-200 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
             >
-              ← 뒤로 가기
+              <Send className="w-3.5 h-3.5" />
+              <span>카톡문 복사</span>
             </button>
-            <h3 className="font-semibold text-gray-800">컴플레인 상세 내용</h3>
           </div>
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-lg">
@@ -453,6 +540,7 @@ export default function ComplaintLog() {
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[9px] sm:text-sm font-semibold whitespace-nowrap tracking-tighter sm:tracking-normal">문제점 요약</th>
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[9px] sm:text-sm font-semibold whitespace-nowrap tracking-tighter sm:tracking-normal text-center">3단계 준수</th>
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[9px] sm:text-sm font-semibold whitespace-nowrap tracking-tighter sm:tracking-normal text-center">담당자</th>
+                    <th className="px-1 sm:px-4 py-2 sm:py-4 text-[9px] sm:text-sm font-semibold whitespace-nowrap tracking-tighter sm:tracking-normal text-center">카톡보고</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -481,10 +569,20 @@ export default function ComplaintLog() {
                          c.step3 === 'X' ? <span className="text-red-600 font-bold">X</span> : '-'}
                       </td>
                       <td className="px-1 sm:px-4 py-2 sm:py-3 text-[10px] sm:text-sm whitespace-nowrap text-center">{c.manager}</td>
+                      <td className="px-1 sm:px-4 py-2 sm:py-3 whitespace-nowrap text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openPreviewModal(c)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-xs shadow-amber-200 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>보고</span>
+                        </button>
+                      </td>
                     </tr>
                   )) : (
                     <tr className="hover:bg-gray-50 cursor-pointer transition-colors">
-                      <td className="px-4 py-8 text-center text-gray-500 text-[11px] sm:text-sm" colSpan={6}>
+                      <td className="px-4 py-8 text-center text-gray-500 text-[11px] sm:text-sm" colSpan={7}>
                         {showAllMonths ? '등록된 컴플레인 내역이 없습니다.' : `${selectedYear}년 ${selectedMonth}월에 등록된 컴플레인 내역이 없습니다.`}
                       </td>
                     </tr>
@@ -496,6 +594,61 @@ export default function ComplaintLog() {
         </div>
       )}
         </>
+      )}
+
+      {/* 미리보기 & 카톡 복사 모달 */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <MessageSquareQuote className="w-4 h-4 text-rose-600" />
+                <h3 className="font-bold text-sm text-gray-800">{modalTitle}</h3>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700 leading-relaxed bg-gray-50/80 p-4 rounded-2xl border border-gray-200/70 select-all font-mono">
+                {modalContent}
+              </pre>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+              <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                {isCopied && (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>클립보드에 복사되었습니다!</span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  닫기
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md shadow-rose-200 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                >
+                  {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {isCopied ? '복사완료' : '카톡문 복사하기'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

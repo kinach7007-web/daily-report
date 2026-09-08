@@ -1,5 +1,19 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Save, Info, Calendar, ChevronLeft, ChevronRight, RotateCcw, Filter } from 'lucide-react';
+import { 
+  Plus, 
+  Save, 
+  Info, 
+  Calendar, 
+  ChevronLeft, 
+  ChevronRight, 
+  RotateCcw, 
+  Filter,
+  Send,
+  Copy,
+  Check,
+  X,
+  MessageSquareQuote
+} from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
 import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -12,6 +26,12 @@ export default function InterviewLog() {
   const [interviews, setInterviews] = useState<any[]>([]);
   const [selectedInterview, setSelectedInterview] = useState<any | null>(null);
   const [toastMessage, setToastMessage] = useState('');
+
+  // Preview & Copy Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalContent, setModalContent] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
 
   // Current year & month for default filter
   const todayBusiness = getBusinessDate();
@@ -160,7 +180,7 @@ export default function InterviewLog() {
       const notifTitle = '👥 [면접일지] 면접일지 저장 알림';
       const notifBody = `${author}님이 지원자 [${formData.applicant}]님의 면접일지를 저장했습니다.`;
 
-      addDoc(collection(db, 'reports'), {
+      await addDoc(collection(db, 'reports'), {
         writer: author,
         type: '면접일지',
         title: '면접일지 저장',
@@ -171,8 +191,8 @@ export default function InterviewLog() {
         createdAt: Timestamp.now()
       });
 
-      // Background Web Push to all devices
-      dispatchBackgroundPushToAll({
+      // Background Web Push to all devices (await delivery to server)
+      await dispatchBackgroundPushToAll({
         title: notifTitle,
         body: notifBody,
         type: '면접일지',
@@ -180,6 +200,71 @@ export default function InterviewLog() {
       }).catch((e) => console.warn('Background push dispatch error:', e));
     } catch (e) {
       console.error('Interview real-time notification failed:', e);
+    }
+  };
+
+  // Build KakaoTalk text for Interview Log
+  const buildInterviewReportText = (item: any) => {
+    const lines: string[] = [];
+    lines.push('[뼈반집 신규 면접 결과 보고]');
+    lines.push(`■ 면접일자: ${item.date || (item.id ? new Date(item.id).toLocaleDateString('ko-KR') : '-')}`);
+    const genderBirth = [item.gender, item.birthYear ? `${item.birthYear}년생` : ''].filter(Boolean).join(', ');
+    lines.push(`■ 지원자: ${item.applicant || '-'}${genderBirth ? ` (${genderBirth})` : ''}`);
+    lines.push(`■ 연락처: ${item.phone || '-'}`);
+    lines.push(`■ 지원분야: ${item.dept || '-'} / ${item.type || '-'}${item.shift ? ` (${item.shift})` : ''}`);
+    lines.push(`■ 면접관: ${item.interviewer || '-'}`);
+    lines.push('');
+    lines.push('[면접 체크리스트]');
+    lines.push(`▶ 장기근무성: ${item.q1 || '-'}`);
+    lines.push(`▶ 기본태도 1 (인성/예의): ${item.q2 || '-'}`);
+    lines.push(`▶ 기본태도 2 (근태): ${item.q3 || '-'}`);
+    lines.push(`▶ 팀워크 / 조화성: ${item.q4 || '-'}`);
+    lines.push(`▶ 서비스 마인드: ${item.q5 || '-'}`);
+    lines.push(`▶ 퇴사시 변수: ${item.q6 || '-'}`);
+    lines.push(`▶ 출근 가능 일정: ${item.q7 || '-'}`);
+    lines.push('');
+    lines.push('[급여 안내 및 최종 평가]');
+    lines.push(`■ 주간 급여: ${item.salaryDay ? `${item.salaryDay}만원` : '-'}`);
+    lines.push(`■ 야간 급여: ${item.salaryNight ? `${item.salaryNight}만원` : '-'}`);
+    lines.push(`■ 최종 평가: ${item.evaluation || '미평가'}`);
+    return lines.join('\n');
+  };
+
+  const openPreviewModal = (item: any) => {
+    setModalTitle(`면접일지 카톡문 미리보기 (${item.applicant ? `${item.applicant} 지원자` : '면접기록'})`);
+    setModalContent(buildInterviewReportText(item));
+    setIsCopied(false);
+    setIsModalOpen(true);
+  };
+
+  const handleCopy = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(modalContent).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      }).catch(() => {
+        fallbackCopy(modalContent);
+      });
+    } else {
+      fallbackCopy(modalContent);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (e) {
+      console.warn('Fallback copy failed:', e);
     }
   };
 
@@ -192,14 +277,24 @@ export default function InterviewLog() {
       )}
       {selectedInterview ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center gap-4">
-            <button 
-              onClick={() => setSelectedInterview(null)}
-              className="text-gray-500 hover:text-gray-800 transition-colors"
+          <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setSelectedInterview(null)}
+                className="text-gray-500 hover:text-gray-800 transition-colors cursor-pointer font-medium text-sm"
+              >
+                ← 뒤로 가기
+              </button>
+              <h3 className="font-semibold text-gray-800">면접 기록 상세 내용</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => openPreviewModal(selectedInterview)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
             >
-              ← 뒤로 가기
+              <Send className="w-3.5 h-3.5" />
+              <span>카톡문 복사</span>
             </button>
-            <h3 className="font-semibold text-gray-800">면접 기록 상세 내용</h3>
           </div>
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-lg">
@@ -575,6 +670,7 @@ export default function InterviewLog() {
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[10px] sm:text-sm font-semibold whitespace-nowrap text-center">연락처</th>
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[10px] sm:text-sm font-semibold whitespace-nowrap text-center">면접관</th>
                     <th className="px-1 sm:px-4 py-2 sm:py-4 text-[10px] sm:text-sm font-semibold whitespace-nowrap text-center">최종 평가</th>
+                    <th className="px-1 sm:px-4 py-2 sm:py-4 text-[10px] sm:text-sm font-semibold whitespace-nowrap text-center">카톡보고</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -597,10 +693,20 @@ export default function InterviewLog() {
                           {interview.evaluation || '미평가'}
                         </span>
                       </td>
+                      <td className="px-1 sm:px-4 py-2 sm:py-3 whitespace-nowrap text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => openPreviewModal(interview)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs shadow-indigo-200 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>보고</span>
+                        </button>
+                      </td>
                     </tr>
                   )) : (
                     <tr className="hover:bg-gray-50 cursor-pointer transition-colors">
-                      <td className="px-1 sm:px-4 py-8 text-center text-gray-500 text-[11px] sm:text-sm" colSpan={6}>
+                      <td className="px-1 sm:px-4 py-8 text-center text-gray-500 text-[11px] sm:text-sm" colSpan={7}>
                         {showAllMonths ? '등록된 면접 기록이 없습니다.' : `${selectedYear}년 ${selectedMonth}월에 등록된 면접 기록이 없습니다.`}
                       </td>
                     </tr>
@@ -612,6 +718,61 @@ export default function InterviewLog() {
         </div>
       )}
         </>
+      )}
+
+      {/* 미리보기 & 카톡 복사 모달 */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <MessageSquareQuote className="w-4 h-4 text-indigo-600" />
+                <h3 className="font-bold text-sm text-gray-800">{modalTitle}</h3>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700 leading-relaxed bg-gray-50/80 p-4 rounded-2xl border border-gray-200/70 select-all font-mono">
+                {modalContent}
+              </pre>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+              <div className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                {isCopied && (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>클립보드에 복사되었습니다!</span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  닫기
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md shadow-indigo-200 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                >
+                  {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {isCopied ? '복사완료' : '카톡문 복사하기'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
