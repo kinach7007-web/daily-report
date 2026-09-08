@@ -15,11 +15,13 @@ import {
   Sparkles,
   Users,
   ShieldCheck,
-  FileText
+  FileText,
+  Radio
 } from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import UserManagement from './UserManagement';
 import MonthlyReportList from './MonthlyReportList';
+import PushNotificationTester from './PushNotificationTester';
 
 interface WeekdayItem {
   key: number;
@@ -270,7 +272,7 @@ export default function AdminCenter() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Top Main Section Switcher */}
-      <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/80 shadow-2xs grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/80 shadow-2xs grid grid-cols-2 sm:grid-cols-4 gap-2">
         <button
           onClick={() => setAdminSection('stats')}
           className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs md:text-sm font-bold transition-all cursor-pointer ${
@@ -304,7 +306,19 @@ export default function AdminCenter() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>사용자(직원) 계정 관리</span>
+          <span>직원 계정 관리</span>
+        </button>
+
+        <button
+          onClick={() => setAdminSection('push-test')}
+          className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs md:text-sm font-bold transition-all cursor-pointer ${
+            adminSection === 'push-test'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+          }`}
+        >
+          <Radio className="w-4 h-4 text-rose-400 animate-pulse" />
+          <span>잠금화면 푸시 진단</span>
         </button>
       </div>
 
@@ -312,6 +326,8 @@ export default function AdminCenter() {
         <MonthlyReportList />
       ) : adminSection === 'users' ? (
         <UserManagement />
+      ) : adminSection === 'push-test' ? (
+        <PushNotificationTester />
       ) : (
         <>
           {/* Header */}
