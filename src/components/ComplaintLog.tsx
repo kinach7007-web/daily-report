@@ -52,7 +52,8 @@ export default function ComplaintLog() {
       problem: '',
       step1Action: '',
       step2Action: '',
-      step3Action: ''
+      step3Action: '',
+      improvementPlan: ''
     };
   });
 
@@ -162,7 +163,8 @@ export default function ComplaintLog() {
       problem: '',
       step1Action: '',
       step2Action: '',
-      step3Action: ''
+      step3Action: '',
+      improvementPlan: ''
     });
     localStorage.removeItem('complaintDraft');
     setIsFormOpen(false);
@@ -216,6 +218,11 @@ export default function ComplaintLog() {
     lines.push(`▶ 1단계 (최초 대응): ${c.step1Action || '-'}`);
     lines.push(`▶ 2단계 (책임자 대응): ${c.step2Action || '-'}`);
     lines.push(`▶ 3단계 (카운터 대응): ${c.step3Action || '-'}`);
+    if (c.improvementPlan) {
+      lines.push('');
+      lines.push('[앞으로 개선방향]');
+      lines.push(c.improvementPlan);
+    }
     return lines.join('\n');
   };
 
@@ -327,6 +334,15 @@ export default function ComplaintLog() {
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedComplaint.step3Action || '작성된 내용이 없습니다.'}</p>
               </div>
             </div>
+
+            {selectedComplaint.improvementPlan && (
+              <div>
+                <h4 className="font-bold text-gray-800 mb-2">앞으로 개선방향</h4>
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg text-emerald-950 whitespace-pre-wrap text-sm">
+                  {selectedComplaint.improvementPlan}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -454,6 +470,17 @@ export default function ComplaintLog() {
                   placeholder="예: 손님 나가실 때 다시 한 번 죄송하단 말씀과 함께 다음에 사용하실 수 있는 상품권 1만원 발급해드렸고..."
                 ></textarea>
               </div>
+            </div>
+
+            {/* 앞으로 개선방향 */}
+            <div>
+              <label className="block text-base font-semibold text-gray-800 mb-2">앞으로 개선방향</label>
+              <textarea 
+                value={formData.improvementPlan || ''} 
+                onChange={e => setFormData({...formData, improvementPlan: e.target.value})}
+                className="w-full border border-gray-300 rounded-lg p-3 min-h-[100px] focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                placeholder="예 : 클레임 또는 사건발생의 차단 방법이나 재발방지 대책에 대하여 작성해주시면 됩니다!"
+              ></textarea>
             </div>
 
           </div>
