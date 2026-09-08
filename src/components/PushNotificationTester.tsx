@@ -54,8 +54,8 @@ export default function PushNotificationTester() {
         list.push({ id: docSnap.id, ...(docSnap.data() as any) });
       });
       setDevices(list);
-    } catch (e) {
-      console.error('Failed to fetch FCM devices:', e);
+    } catch (e: any) {
+      console.warn('[FCM Tester] Could not fetch FCM devices from Firestore:', e?.message || e);
     } finally {
       setIsLoading(false);
     }

@@ -112,8 +112,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUsersList([MASTER_ADMIN]);
           setIsLoading(false);
         });
-      } catch (err) {
-        console.error('Failed to initialize users collection:', err);
+      } catch (err: any) {
+        console.warn('Notice: Firestore users init fallback to offline admin:', err?.message || err);
         setUsersList([MASTER_ADMIN]);
         setIsLoading(false);
       }

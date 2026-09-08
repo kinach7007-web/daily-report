@@ -199,10 +199,10 @@ export default function SalesStats() {
           localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreReports));
         }
       }, (error) => {
-        console.error("Firestore snapshot error:", error);
+        console.warn("Firestore snapshot notice (using local storage data):", error?.message || error);
       });
-    } catch (e) {
-      console.error("Failed to setup firestore listener", e);
+    } catch (e: any) {
+      console.warn("Failed to setup firestore listener:", e?.message || e);
     }
 
     const handleStorage = () => {

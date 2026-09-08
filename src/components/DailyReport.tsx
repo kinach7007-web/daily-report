@@ -214,8 +214,8 @@ export default function DailyReport() {
           }, 300);
         }
       }
-    } catch (e) {
-      console.error("Manual fetch cloud data error:", e);
+    } catch (e: any) {
+      console.warn("Manual fetch cloud data notice (offline/permission fallback):", e?.message || e);
     } finally {
       isInitializedFromCloudRef.current = true;
     }
@@ -410,7 +410,7 @@ export default function DailyReport() {
         }
       }
     }, (error) => {
-      console.error("DailyReport real-time sync error:", error);
+      console.warn("DailyReport real-time sync notice (using local draft):", error?.message || error);
     });
 
     return () => {
