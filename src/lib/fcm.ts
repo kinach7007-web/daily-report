@@ -3,7 +3,7 @@ import { app, db } from './firebase';
 import { doc, setDoc, serverTimestamp, collection, getDocs, Timestamp } from 'firebase/firestore';
 import { UserAccount } from '../types';
 
-export const FCM_VAPID_KEY = 'BFWKTRE0mIsp7aiwGrOZ4b_KeJ1ETiCHaqb_udo18_6YEML5XvRdanbbvAqzRIHCbKw9yzYkQUyW60SqJDRVu3I';
+export const FCM_VAPID_KEY = 'BGfczqa3B2WjmUafaaYdYEyrPY238iEPVxkZE_IWfqz8CQuyOk498O_e8A28eW4SSKUnFs_MfKrcao6T82Nkj_Q';
 
 let messagingInstance: Messaging | null = null;
 

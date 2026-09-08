@@ -240,7 +240,7 @@ export default function PushNotificationTester() {
 
           <button
             onClick={handleSendTestPush}
-            disabled={isSending || devices.length === 0}
+            disabled={isSending}
             className="px-6 py-2.5 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-rose-200 disabled:opacity-50"
           >
             <Send className={`w-4 h-4 ${isSending ? 'animate-bounce' : ''}`} />
@@ -255,17 +255,28 @@ export default function PushNotificationTester() {
         )}
 
         {testResult && (
-          <div className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs space-y-1">
+          <div className={`p-4 rounded-2xl text-xs space-y-1.5 ${
+            (testResult.successCount || 0) > 0 
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-rose-50 text-rose-800 border border-rose-200'
+          }`}>
             <div className="font-bold flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>발송 완료 결과</span>
+              {(testResult.successCount || 0) > 0 ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600" />
+              )}
+              <span>발송 결과: {devices.length}대 대상 (성공: {testResult.successCount || 0}건, 실패: {testResult.failureCount || 0}건)</span>
             </div>
-            <p className="text-gray-700">
-              총 {devices.length}대 중 <strong>성공: {testResult.successCount || 0}건</strong>, 실패: {testResult.failureCount || 0}건
-            </p>
-            <p className="text-[11px] text-gray-500">
-              * 기기 화면이 꺼져 있을 때 애플(APNs)/구글(FCM)을 통해 수초 내로 잠금화면 배너가 표시됩니다.
-            </p>
+            {devices.length === 0 ? (
+              <p className="text-rose-700 font-medium">
+                ⚠️ Firestore에 등록된 수신 기기 토큰이 없습니다. 아이폰 홈 화면의 뼈반집 앱에서 [이 기기 푸시 토큰 즉시 등록]을 먼저 눌러주세요.
+              </p>
+            ) : (
+              <p className="text-gray-700">
+                구글 FCM v1 서버를 통해 Apple APNs 게이트웨이로 정상 발송되었습니다.
+              </p>
+            )}
           </div>
         )}
       </div>

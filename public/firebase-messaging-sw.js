@@ -4,19 +4,19 @@ importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-com
 
 // Initialize Firebase in Service Worker
 firebase.initializeApp({
-  apiKey: "AIzaSyBs2cAQIFuDjvT-_sqscHR7GIhMzAZXpS4",
-  authDomain: "gen-lang-client-0675907373.firebaseapp.com",
-  projectId: "gen-lang-client-0675907373",
-  storageBucket: "gen-lang-client-0675907373.firebasestorage.app",
-  messagingSenderId: "1008014518740",
-  appId: "1:1008014518740:web:d0e58248865f6edbbd4e41"
+  apiKey: "AIzaSyB3HGTq_x6WnylVXKKOJpau-dJxD7igYGk",
+  authDomain: "daily-report-bb.firebaseapp.com",
+  projectId: "daily-report-bb",
+  storageBucket: "daily-report-bb.firebasestorage.app",
+  messagingSenderId: "148260545141",
+  appId: "1:148260545141:web:021631eceb726c53600e3c"
 });
 
 const messaging = firebase.messaging();
 
 // Handle Background Push Messages (When screen is locked or browser is in background)
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Background message received:', payload);
+  console.log('[firebase-messaging-sw.js] Background message received via FCM SDK:', payload);
   
   const notificationTitle = payload.notification?.title || payload.data?.title || '뼈반집 실시간 알림';
   const notificationBody = payload.notification?.body || payload.data?.body || '새로운 업무/매출 업데이트가 등록되었습니다.';
@@ -35,7 +35,26 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// Generic Push event fallback
+// Direct Web Message handler from foreground client
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, options } = event.data;
+    event.waitUntil(
+      self.registration.showNotification(title || '뼈반집 알림', {
+        body: options?.body || '',
+        icon: options?.icon || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+        badge: options?.badge || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+        vibrate: [200, 100, 200, 100, 200],
+        tag: options?.tag || `notification-${Date.now()}`,
+        renotify: true,
+        data: options?.data || '/',
+        requireInteraction: false
+      })
+    );
+  }
+});
+
+// Generic Push event fallback (covers standard APNs and FCM raw webpush events)
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   try {
