@@ -295,8 +295,8 @@ export default function NotificationManager() {
         if (registration && registration.showNotification) {
           await registration.showNotification(title, {
             body,
-            icon: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-            badge: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
             tag: `notif-${Date.now()}`,
             data: window.location.href,
             vibrate: [200, 100, 200, 100, 200],
@@ -332,7 +332,7 @@ export default function NotificationManager() {
     try {
       new Notification(title, {
         body,
-        icon: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo'
+        icon: '/icon-192.png'
       });
     } catch (e) {
       console.warn('Desktop Notification constructor error:', e);

@@ -1,4 +1,5 @@
 // Firebase Cloud Messaging Service Worker for Background Web Push
+// Version 2.0.1 - Raster PNG Icons
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
 
@@ -23,8 +24,8 @@ messaging.onBackgroundMessage((payload) => {
   
   const notificationOptions = {
     body: notificationBody,
-    icon: payload.notification?.icon || payload.data?.icon || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-    badge: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     vibrate: [200, 100, 200, 100, 200],
     tag: payload.data?.tag || `fcm-push-${Date.now()}`,
     renotify: true,
@@ -42,8 +43,8 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       self.registration.showNotification(title || '뼈반집 알림', {
         body: options?.body || '',
-        icon: options?.icon || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-        badge: options?.badge || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
         vibrate: [200, 100, 200, 100, 200],
         tag: options?.tag || `notification-${Date.now()}`,
         renotify: true,
@@ -79,8 +80,8 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: body,
-    icon: data.icon || data.notification?.icon || data.data?.icon || 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-    badge: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     vibrate: [300, 100, 300, 100, 300],
     tag: data.tag || data.data?.tag || `push-${Date.now()}`,
     renotify: true,

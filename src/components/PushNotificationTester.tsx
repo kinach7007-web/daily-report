@@ -198,8 +198,8 @@ export default function PushNotificationTester() {
       const reg = await navigator.serviceWorker.ready;
       await reg.showNotification(testTitle.trim() || '🔔 뼈반집 테스트 알림', {
         body: testBody.trim() || '잠금화면 수신 테스트',
-        icon: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-        badge: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
         tag: `local-test-${Date.now()}`,
         requireInteraction: true
       } as any);

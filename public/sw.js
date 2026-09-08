@@ -18,8 +18,8 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       self.registration.showNotification(title || '뼈반집 알림', {
         body: options?.body || '',
-        icon: options?.icon || 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
-        badge: options?.badge || 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+        icon: options?.icon || '/icon-192.png',
+        badge: options?.badge || '/icon-192.png',
         vibrate: [200, 100, 200, 100, 200],
         tag: options?.tag || `notification-${Date.now()}`,
         renotify: true,
@@ -40,8 +40,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || '뼈반집 알림';
   const options = {
     body: data.body || '새로운 보고서가 도착했습니다.',
-    icon: 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
-    badge: 'https://placehold.co/192x192/E11D48/white?text=Ppyeo',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     vibrate: [200, 100, 200, 100, 200],
     tag: `push-${Date.now()}`,
     renotify: true,
