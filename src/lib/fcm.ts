@@ -58,15 +58,25 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
     });
     await navigator.serviceWorker.ready;
 
-    // 3. Acquire native W3C Push Subscription using server VAPID key
+    // 3. Acquire fresh native W3C Push Subscription using server VAPID key
+    const convertedVapidKey = urlBase64ToUint8Array(FCM_VAPID_KEY);
     let pushSubscription = await swRegistration.pushManager.getSubscription();
-    if (!pushSubscription) {
-      const convertedVapidKey = urlBase64ToUint8Array(FCM_VAPID_KEY);
-      pushSubscription = await swRegistration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey
-      });
+
+    // If an existing subscription was registered with an older/different VAPID key,
+    // we must unsubscribe it first, otherwise Apple APNs throws "VapidPkHashMismatch"
+    if (pushSubscription) {
+      try {
+        console.log('[FCM] Refreshing existing subscription to ensure VAPID key consistency...');
+        await pushSubscription.unsubscribe();
+      } catch (unsubErr) {
+        console.warn('[FCM] Non-blocking error during unsubscribe:', unsubErr);
+      }
     }
+
+    pushSubscription = await swRegistration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: convertedVapidKey
+    });
 
     const subJson = pushSubscription ? pushSubscription.toJSON() : null;
 

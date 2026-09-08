@@ -71,7 +71,8 @@ export async function dispatchBackgroundPushToAll(payload: PushNotificationPaylo
             })
           });
 
-          if (wpRes.ok) {
+          const contentType = wpRes.headers.get('content-type') || '';
+          if (wpRes.ok && contentType.includes('application/json')) {
             const wpData = await wpRes.json().catch(() => ({}));
             if (wpData.success) {
               console.log(`[PushDispatcher] Delivered via Web-Push to ${device.userName || device.id} (${device.platform})`);
@@ -80,6 +81,8 @@ export async function dispatchBackgroundPushToAll(payload: PushNotificationPaylo
               console.warn(`[PushDispatcher] Subscription expired for ${device.id}, cleaning up`);
               await deleteDoc(doc(db, 'fcm_tokens', device.id)).catch(() => {});
             }
+          } else if (contentType.includes('text/html')) {
+            console.warn('[PushDispatcher] /api/send-web-push returned HTML page instead of API response.');
           }
         } catch (wpErr) {
           console.warn(`[PushDispatcher] Web-Push attempt failed for ${device.id}:`, wpErr);
