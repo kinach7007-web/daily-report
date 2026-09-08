@@ -57,7 +57,17 @@ export async function dispatchBackgroundPushToAll(payload: PushNotificationPaylo
         });
 
         if (response.ok) {
-          successCount++;
+          const resData = await response.json().catch(() => ({}));
+          if (resData.success) {
+            successCount++;
+          } else {
+            // Server reported invalid token or mismatch
+            if (resData.error === 'token-mismatch-or-invalid') {
+              console.warn(`[PushDispatcher] Cleaning up expired/mismatched token ${id}`);
+              await deleteDoc(doc(db, 'fcm_tokens', id)).catch(() => {});
+            }
+            failureCount++;
+          }
         } else {
           // If server returns token expired / invalid, mark or clean up
           const errData = await response.json().catch(() => ({}));

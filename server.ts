@@ -75,8 +75,8 @@ async function startServer() {
           const message: Message = {
             token: token,
             notification: {
-              title: title,
-              body: body || ''
+              title: String(title),
+              body: String(body || '')
             },
             data: {
               title: String(title),
@@ -89,39 +89,8 @@ async function startServer() {
               headers: {
                 Urgency: 'high'
               },
-              notification: {
-                title: title,
-                body: body || '',
-                icon: '/icon-192.png',
-                badge: '/icon-192.png',
-                tag: tag || `push-${Date.now()}`,
-                requireInteraction: true,
-                vibrate: [200, 100, 200, 100, 300]
-              },
               fcmOptions: {
-                link: url || '/'
-              }
-            },
-            android: {
-              priority: 'high',
-              notification: {
-                title: title,
-                body: body || '',
-                sound: 'default',
-                clickAction: url || '/',
-                tag: tag || `push-${Date.now()}`
-              }
-            },
-            apns: {
-              payload: {
-                aps: {
-                  alert: {
-                    title: title,
-                    body: body || ''
-                  },
-                  sound: 'default',
-                  badge: 1
-                }
+                link: String(url || '/')
               }
             }
           };
@@ -130,12 +99,14 @@ async function startServer() {
           console.log('[Server] FCM Admin v1 push sent successfully:', adminResponse);
           return res.json({ success: true, messageId: adminResponse, mode: 'admin-fcm-v1' });
         } catch (adminErr: any) {
-          console.error('[Server] FCM Admin SDK send failed:', adminErr);
-          // If token is expired or unregistered
-          if (adminErr?.code === 'messaging/registration-token-not-registered' || adminErr?.code === 'messaging/invalid-argument') {
-            return res.status(404).json({ error: 'invalid-token', message: adminErr.message });
-          }
-          // Fall through to fallback attempt if needed
+          console.warn('[Server] FCM Admin SDK send failed for token:', adminErr?.message || adminErr);
+          // If token is invalid, expired, or was created with a previous mismatched project
+          return res.status(200).json({ 
+            success: false, 
+            error: 'token-mismatch-or-invalid', 
+            details: adminErr?.message,
+            hint: '이전 테스트 토큰이거나 등록되지 않은 토큰입니다. [이 기기 푸시 토큰 즉시 등록/갱신] 버튼을 눌러 새로고침 해주세요.' 
+          });
         }
       }
 
