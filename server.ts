@@ -1,7 +1,46 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
+import { getMessaging, Message } from 'firebase-admin/messaging';
 import firebaseConfig from './firebase-applet-config.json';
+
+// Initialize Firebase Admin SDK lazily/safely
+let adminApp: App | null = null;
+let adminInitialized = false;
+
+function getFirebaseAdminApp() {
+  if (adminInitialized && adminApp) return adminApp;
+  try {
+    const rawSecret = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (rawSecret && rawSecret.trim()) {
+      let serviceAccount: any;
+      try {
+        serviceAccount = JSON.parse(rawSecret);
+      } catch (parseErr) {
+        // In case the JSON was base64 encoded or has escaped newlines
+        const decoded = Buffer.from(rawSecret, 'base64').toString('utf8');
+        serviceAccount = JSON.parse(decoded);
+      }
+
+      if (getApps().length === 0) {
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: serviceAccount.project_id || firebaseConfig.projectId
+        });
+      } else {
+        adminApp = getApps()[0];
+      }
+      adminInitialized = true;
+      console.log('✅ [Server] Firebase Admin SDK initialized successfully with Service Account');
+    } else {
+      console.log('ℹ️ [Server] FIREBASE_SERVICE_ACCOUNT not found in environment, falling back to Web FCM Relay');
+    }
+  } catch (error) {
+    console.error('⚠️ [Server] Error initializing Firebase Admin SDK:', error);
+  }
+  return adminApp;
+}
 
 async function startServer() {
   const app = express();
@@ -9,13 +48,18 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Health check
+  // Health check & Service Account status
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    getFirebaseAdminApp();
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      adminPushReady: adminInitialized
+    });
   });
 
   // Relay FCM Web Push API
-  // This endpoint dispatches web push messages to target FCM tokens using Google's FCM messaging service
+  // Dispatches web push messages to target FCM tokens using Google's official FCM v1 / Admin SDK
   app.post('/api/send-fcm-push', async (req, res) => {
     try {
       const { token, title, body, type, url, tag } = req.body;
@@ -23,14 +67,87 @@ async function startServer() {
         return res.status(400).json({ error: 'Missing required parameters (token, title)' });
       }
 
+      const adminInstance = getFirebaseAdminApp();
+
+      // If Firebase Admin SDK is initialized, use the official Admin messaging (FCM v1)
+      if (adminInitialized && adminInstance) {
+        try {
+          const message: Message = {
+            token: token,
+            notification: {
+              title: title,
+              body: body || ''
+            },
+            data: {
+              title: String(title),
+              body: String(body || ''),
+              type: String(type || 'general'),
+              url: String(url || '/'),
+              tag: String(tag || `push-${Date.now()}`)
+            },
+            webpush: {
+              headers: {
+                Urgency: 'high'
+              },
+              notification: {
+                title: title,
+                body: body || '',
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: tag || `push-${Date.now()}`,
+                requireInteraction: true,
+                vibrate: [200, 100, 200, 100, 300]
+              },
+              fcmOptions: {
+                link: url || '/'
+              }
+            },
+            android: {
+              priority: 'high',
+              notification: {
+                title: title,
+                body: body || '',
+                sound: 'default',
+                clickAction: url || '/',
+                tag: tag || `push-${Date.now()}`
+              }
+            },
+            apns: {
+              payload: {
+                aps: {
+                  alert: {
+                    title: title,
+                    body: body || ''
+                  },
+                  sound: 'default',
+                  badge: 1
+                }
+              }
+            }
+          };
+
+          const adminResponse = await getMessaging(adminInstance).send(message);
+          console.log('[Server] FCM Admin v1 push sent successfully:', adminResponse);
+          return res.json({ success: true, messageId: adminResponse, mode: 'admin-fcm-v1' });
+        } catch (adminErr: any) {
+          console.error('[Server] FCM Admin SDK send failed:', adminErr);
+          // If token is expired or unregistered
+          if (adminErr?.code === 'messaging/registration-token-not-registered' || adminErr?.code === 'messaging/invalid-argument') {
+            return res.status(404).json({ error: 'invalid-token', message: adminErr.message });
+          }
+          // Fall through to fallback attempt if needed
+        }
+      }
+
+      // Fallback: Send to FCM Legacy/HTTP endpoint with API key
       const fcmPayload = {
         to: token,
         priority: 'high',
         notification: {
           title: title,
           body: body || '',
-          icon: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
-          badge: 'https://placehold.co/192x192/A8462B/white?text=Ppyeo',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
           click_action: url || '/',
           tag: tag || `push-${Date.now()}`
         },
@@ -43,7 +160,6 @@ async function startServer() {
         }
       };
 
-      // Send to FCM Legacy/HTTP endpoint with API key
       const fcmResponse = await fetch('https://fcm.googleapis.com/fcm/send', {
         method: 'POST',
         headers: {
@@ -56,10 +172,10 @@ async function startServer() {
       const responseData = await fcmResponse.json().catch(() => ({}));
       
       if (fcmResponse.ok && responseData?.success === 1) {
-        return res.json({ success: true, result: responseData });
+        return res.json({ success: true, result: responseData, mode: 'legacy-key' });
       } else {
         console.warn('[Server] FCM Push dispatch result:', responseData);
-        return res.status(200).json({ success: true, warning: responseData });
+        return res.status(200).json({ success: true, warning: responseData, mode: 'legacy-key' });
       }
     } catch (error: any) {
       console.error('[Server] Error sending FCM push:', error);
