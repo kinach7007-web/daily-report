@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { db } from '../lib/firebase';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { getBusinessDate } from './DailyReport';
 import { 
   ClipboardList, 
   Sun, 
@@ -163,25 +160,11 @@ export default function DailyTaskReport() {
         if (!closeWriter) setCloseWriter(currentUser.name);
       }
 
-      // 1. Load from localStorage first
+      // Load from local storage (each user's device draft is purely local)
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         applyReportData(JSON.parse(raw));
       }
-
-      // 2. Load from Firestore taskReports
-      const bDate = getBusinessDate();
-      const unsubscribe = onSnapshot(doc(db, 'taskReports', bDate), (docSnap) => {
-        if (docSnap.exists()) {
-          const cloudData = docSnap.data();
-          applyReportData(cloudData);
-          localStorage.setItem(STORE_KEY, JSON.stringify(cloudData));
-        }
-      }, (err) => {
-        console.warn('Firestore taskReport sync note:', err);
-      });
-
-      return () => unsubscribe();
     } catch (e) {
       console.warn('Failed to load draft:', e);
     }
@@ -194,7 +177,7 @@ export default function DailyTaskReport() {
     }
   }, [currentUser]);
 
-  // Save to localStorage & sync to Firestore
+  // Save purely to local storage (no network sharing/overwriting)
   const saveDraft = () => {
     try {
       const data = {
@@ -208,10 +191,6 @@ export default function DailyTaskReport() {
         closeTaskOk, closeTaskText, closeHygieneNote, closeNoteText, closeRequest
       };
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
-
-      const bDate = getBusinessDate();
-      setDoc(doc(db, 'taskReports', bDate), { ...data, updatedAt: new Date() }, { merge: true })
-        .catch(e => console.warn('taskReports firestore sync error:', e));
     } catch (e) {
       console.warn('Failed to save draft:', e);
     }
