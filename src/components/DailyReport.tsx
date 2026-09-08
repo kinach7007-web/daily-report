@@ -169,6 +169,21 @@ export default function DailyReport() {
 
   const isRemoteUpdateRef = useRef(false);
   const isInitializedFromCloudRef = useRef(false);
+  const lastUserTypingTimeRef = useRef<number>(0);
+
+  const recordUserTyping = () => {
+    lastUserTypingTimeRef.current = Date.now();
+  };
+
+  const isUserActivelyEditing = () => {
+    if (typeof document !== 'undefined') {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+        return true;
+      }
+    }
+    return (Date.now() - lastUserTypingTimeRef.current) < 5000;
+  };
 
   // Real-time Firestore synchronization listener for selectedDate
   const fetchCloudData = async (force = false) => {
@@ -191,33 +206,79 @@ export default function DailyReport() {
           localStorage.setItem('dailyReportsHistory', JSON.stringify(savedReports));
           window.dispatchEvent(new Event('storage'));
 
-          // Update form state with latest cloud record
+          // Update form state with latest cloud record (never overwrite user edits unless forced)
           isRemoteUpdateRef.current = true;
+          const userTypingNow = isUserActivelyEditing();
+
           if (record.sales?.lunch) {
-            setLunchSales(prev => (record.sales.lunch.isLocked || !prev.isLocked || force) ? record.sales.lunch : prev);
+            setLunchSales(prev => {
+              if (force || record.sales.lunch.isLocked) return record.sales.lunch;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.lunch;
+              return prev;
+            });
           }
           if (record.sales?.dinner) {
-            setDinnerSales(prev => (record.sales.dinner.isLocked || !prev.isLocked || force) ? record.sales.dinner : prev);
+            setDinnerSales(prev => {
+              if (force || record.sales.dinner.isLocked) return record.sales.dinner;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.dinner;
+              return prev;
+            });
           }
           if (record.sales?.night) {
-            setNightSales(prev => (record.sales.night.isLocked || !prev.isLocked || force) ? record.sales.night : prev);
+            setNightSales(prev => {
+              if (force || record.sales.night.isLocked) return record.sales.night;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.night;
+              return prev;
+            });
           }
           if (record.reviews) {
-            const isServerReviewsLocked = record.reviews.details?.isLocked;
-            if (record.reviews.kindness) setReviewKindness(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.kindness : prev);
-            if (record.reviews.delicious) setReviewDelicious(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.delicious : prev);
-            if (record.reviews.normal) setReviewNormal(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.normal : prev);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.uncomfortable : prev);
+            const isServerReviewsLocked = Boolean(record.reviews.details?.isLocked);
+            setReviewKindness(prev => {
+              if (force || isServerReviewsLocked) return record.reviews.kindness || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.kindness || prev;
+              return prev;
+            });
+            setReviewDelicious(prev => {
+              if (force || isServerReviewsLocked) return record.reviews.delicious || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.delicious || prev;
+              return prev;
+            });
+            setReviewNormal(prev => {
+              if (force || isServerReviewsLocked) return record.reviews.normal || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.normal || prev;
+              return prev;
+            });
+            setReviewUncomfortable(prev => {
+              if (force || isServerReviewsLocked) return record.reviews.uncomfortable || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.uncomfortable || prev;
+              return prev;
+            });
             if (record.reviews.details) {
-              setReviewDetails(prev => (isServerReviewsLocked || !prev.isLocked || force) ? record.reviews.details : prev);
-              setIsReviewsLocked(isServerReviewsLocked || false);
+              setReviewDetails(prev => {
+                if (force || isServerReviewsLocked) return record.reviews.details;
+                if (!userTypingNow && !prev.note && !prev.service && !prev.food && !prev.facility && !prev.other) return record.reviews.details;
+                return prev;
+              });
+              if (isServerReviewsLocked) {
+                setIsReviewsLocked(true);
+              }
             }
           }
           if (record.fridgeTemps) {
-            setFridgeTemps(prev => (record.fridgeTemps?.isLocked || !prev.isLocked || force) ? record.fridgeTemps : prev);
+            setFridgeTemps(prev => {
+              if (force || record.fridgeTemps?.isLocked) return record.fridgeTemps;
+              const isLocalEmpty = Object.entries(prev).every(([k, v]) => k === 'isLocked' || v === '');
+              if (!userTypingNow && isLocalEmpty) return record.fridgeTemps;
+              return prev;
+            });
           }
           if (record.discount) {
-            setDiscountStatus(prev => (record.discount?.isLocked || !prev.isLocked || force) ? record.discount : prev);
+            setDiscountStatus(prev => {
+              if (force || record.discount?.isLocked) return record.discount;
+              const isLocalEmpty = !prev.marketing.amount && !prev.event.amount && !prev.other.amount && !prev.other.note;
+              if (!userTypingNow && isLocalEmpty) return record.discount;
+              return prev;
+            });
           }
           setTimeout(() => {
             isRemoteUpdateRef.current = false;
@@ -365,51 +426,98 @@ export default function DailyReport() {
           window.dispatchEvent(new Event('storage'));
 
           // Smart section-by-section sync:
-          // If a section is locked/confirmed on the server, or if the local section is unlocked and not actively being typed in, update it!
+          // Never overwrite fields while the user is actively typing/editing on this device!
           isRemoteUpdateRef.current = true;
+          const userTypingNow = isUserActivelyEditing();
           
           if (record.sales?.lunch) {
-            setLunchSales(prev => (record.sales.lunch.isLocked || !prev.isLocked) ? record.sales.lunch : prev);
+            setLunchSales(prev => {
+              if (record.sales.lunch.isLocked) return record.sales.lunch;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.lunch;
+              return prev;
+            });
           }
           if (record.sales?.dinner) {
-            setDinnerSales(prev => (record.sales.dinner.isLocked || !prev.isLocked) ? record.sales.dinner : prev);
+            setDinnerSales(prev => {
+              if (record.sales.dinner.isLocked) return record.sales.dinner;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.dinner;
+              return prev;
+            });
           }
           if (record.sales?.night) {
-            setNightSales(prev => (record.sales.night.isLocked || !prev.isLocked) ? record.sales.night : prev);
+            setNightSales(prev => {
+              if (record.sales.night.isLocked) return record.sales.night;
+              if (!userTypingNow && !prev.amount && !prev.count) return record.sales.night;
+              return prev;
+            });
           }
           if (record.reviews) {
-            const isServerReviewsLocked = record.reviews.details?.isLocked;
-            if (record.reviews.kindness) setReviewKindness(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.kindness : prev);
-            if (record.reviews.delicious) setReviewDelicious(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.delicious : prev);
-            if (record.reviews.normal) setReviewNormal(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.normal : prev);
-            if (record.reviews.uncomfortable) setReviewUncomfortable(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.uncomfortable : prev);
+            const isServerReviewsLocked = Boolean(record.reviews.details?.isLocked);
+            setReviewKindness(prev => {
+              if (isServerReviewsLocked) return record.reviews.kindness || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.kindness || prev;
+              return prev;
+            });
+            setReviewDelicious(prev => {
+              if (isServerReviewsLocked) return record.reviews.delicious || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.delicious || prev;
+              return prev;
+            });
+            setReviewNormal(prev => {
+              if (isServerReviewsLocked) return record.reviews.normal || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.normal || prev;
+              return prev;
+            });
+            setReviewUncomfortable(prev => {
+              if (isServerReviewsLocked) return record.reviews.uncomfortable || prev;
+              if (!userTypingNow && !prev.count) return record.reviews.uncomfortable || prev;
+              return prev;
+            });
             if (record.reviews.details) {
-              setReviewDetails(prev => (isServerReviewsLocked || !prev.isLocked) ? record.reviews.details : prev);
-              setIsReviewsLocked(isServerReviewsLocked || false);
+              setReviewDetails(prev => {
+                if (isServerReviewsLocked) return record.reviews.details;
+                if (!userTypingNow && !prev.note && !prev.service && !prev.food && !prev.facility && !prev.other) return record.reviews.details;
+                return prev;
+              });
+              if (isServerReviewsLocked) {
+                setIsReviewsLocked(true);
+              }
             }
           }
           if (record.fridgeTemps) {
-            setFridgeTemps(prev => (record.fridgeTemps?.isLocked || !prev.isLocked) ? record.fridgeTemps : prev);
+            setFridgeTemps(prev => {
+              if (record.fridgeTemps?.isLocked) return record.fridgeTemps;
+              const isLocalEmpty = Object.entries(prev).every(([k, v]) => k === 'isLocked' || v === '');
+              if (!userTypingNow && isLocalEmpty) return record.fridgeTemps;
+              return prev;
+            });
           }
           if (record.discount) {
-            setDiscountStatus(prev => (record.discount?.isLocked || !prev.isLocked) ? record.discount : prev);
+            setDiscountStatus(prev => {
+              if (record.discount?.isLocked) return record.discount;
+              const isLocalEmpty = !prev.marketing.amount && !prev.event.amount && !prev.other.amount && !prev.other.note;
+              if (!userTypingNow && isLocalEmpty) return record.discount;
+              return prev;
+            });
           }
 
-          // Update the local draft file to stay consistent
-          const mergedStateObj = {
-            lunchSales: record.sales?.lunch || lunchSales,
-            dinnerSales: record.sales?.dinner || dinnerSales,
-            nightSales: record.sales?.night || nightSales,
-            reviewKindness: record.reviews?.kindness || reviewKindness,
-            reviewDelicious: record.reviews?.delicious || reviewDelicious,
-            reviewNormal: record.reviews?.normal || reviewNormal,
-            reviewUncomfortable: record.reviews?.uncomfortable || reviewUncomfortable,
-            reviewDetails: record.reviews?.details || reviewDetails,
-            isReviewsLocked: record.reviews?.details?.isLocked ?? isReviewsLocked,
-            fridgeTemps: record.fridgeTemps || fridgeTemps,
-            discountStatus: record.discount || discountStatus
-          };
-          localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(mergedStateObj));
+          // Only update the local draft file if user is not actively typing
+          if (!userTypingNow) {
+            const mergedStateObj = {
+              lunchSales: record.sales?.lunch || lunchSales,
+              dinnerSales: record.sales?.dinner || dinnerSales,
+              nightSales: record.sales?.night || nightSales,
+              reviewKindness: record.reviews?.kindness || reviewKindness,
+              reviewDelicious: record.reviews?.delicious || reviewDelicious,
+              reviewNormal: record.reviews?.normal || reviewNormal,
+              reviewUncomfortable: record.reviews?.uncomfortable || reviewUncomfortable,
+              reviewDetails: record.reviews?.details || reviewDetails,
+              isReviewsLocked: record.reviews?.details?.isLocked ?? isReviewsLocked,
+              fridgeTemps: record.fridgeTemps || fridgeTemps,
+              discountStatus: record.discount || discountStatus
+            };
+            localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(mergedStateObj));
+          }
 
           setTimeout(() => {
             isRemoteUpdateRef.current = false;
@@ -1199,7 +1307,22 @@ export default function DailyReport() {
                   {isLunchLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{lunchSales.amount || '0'}원</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={lunchSales.amount} onChange={e => setLunchSales({...lunchSales, amount: formatNumber(e.target.value)})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0원" 
+                      value={lunchSales.amount} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setLunchSales({...lunchSales, amount: formatNumber(e.target.value)});
+                      }} 
+                    />
                   )}
                 </div>
                 <div className="flex items-center justify-between">
@@ -1207,7 +1330,22 @@ export default function DailyReport() {
                   {isLunchLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{lunchSales.count || '0'}건</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={lunchSales.count} onChange={e => setLunchSales({...lunchSales, count: formatNumber(e.target.value)})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0건" 
+                      value={lunchSales.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setLunchSales({...lunchSales, count: formatNumber(e.target.value)});
+                      }} 
+                    />
                   )}
                 </div>
               </div>
@@ -1266,7 +1404,22 @@ export default function DailyReport() {
                     <p className="text-sm font-bold text-indigo-600 px-1 w-28 text-right">{netDinnerAmount.toLocaleString()}원</p>
                   ) : (
                     <div className="flex flex-col items-end">
-                      <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="누적 매출" value={dinnerSales.amount} onChange={e => setDinnerSales({...dinnerSales, amount: formatNumber(e.target.value)})} />
+                      <input 
+                        type="text" 
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        onFocus={recordUserTyping}
+                        className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                        placeholder="누적 매출" 
+                        value={dinnerSales.amount} 
+                        onChange={e => {
+                          recordUserTyping();
+                          setDinnerSales({...dinnerSales, amount: formatNumber(e.target.value)});
+                        }} 
+                      />
                       {dinnerSales.amount && <span className="text-[10px] text-gray-400 mt-0.5">실적: {netDinnerAmount.toLocaleString()}원</span>}
                     </div>
                   )}
@@ -1277,7 +1430,22 @@ export default function DailyReport() {
                     <p className="text-sm font-bold text-indigo-600 px-1 w-28 text-right">{netDinnerCount.toLocaleString()}건</p>
                   ) : (
                     <div className="flex flex-col items-end">
-                      <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="누적 건수" value={dinnerSales.count} onChange={e => setDinnerSales({...dinnerSales, count: formatNumber(e.target.value)})} />
+                      <input 
+                        type="text" 
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        onFocus={recordUserTyping}
+                        className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                        placeholder="누적 건수" 
+                        value={dinnerSales.count} 
+                        onChange={e => {
+                          recordUserTyping();
+                          setDinnerSales({...dinnerSales, count: formatNumber(e.target.value)});
+                        }} 
+                      />
                       {dinnerSales.count && <span className="text-[10px] text-gray-400 mt-0.5">실적: {netDinnerCount.toLocaleString()}건</span>}
                     </div>
                   )}
@@ -1338,7 +1506,22 @@ export default function DailyReport() {
                     <p className="text-sm font-bold text-purple-600 px-1 w-28 text-right">{netNightAmount.toLocaleString()}원</p>
                   ) : (
                     <div className="flex flex-col items-end">
-                      <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="누적 매출" value={nightSales.amount} onChange={e => setNightSales({...nightSales, amount: formatNumber(e.target.value)})} />
+                      <input 
+                        type="text" 
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        onFocus={recordUserTyping}
+                        className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                        placeholder="누적 매출" 
+                        value={nightSales.amount} 
+                        onChange={e => {
+                          recordUserTyping();
+                          setNightSales({...nightSales, amount: formatNumber(e.target.value)});
+                        }} 
+                      />
                       {nightSales.amount && <span className="text-[10px] text-gray-400 mt-0.5">실적: {netNightAmount.toLocaleString()}원</span>}
                     </div>
                   )}
@@ -1349,7 +1532,22 @@ export default function DailyReport() {
                     <p className="text-sm font-bold text-purple-600 px-1 w-28 text-right">{netNightCount.toLocaleString()}건</p>
                   ) : (
                     <div className="flex flex-col items-end">
-                      <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="누적 건수" value={nightSales.count} onChange={e => setNightSales({...nightSales, count: formatNumber(e.target.value)})} />
+                      <input 
+                        type="text" 
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        onFocus={recordUserTyping}
+                        className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                        placeholder="누적 건수" 
+                        value={nightSales.count} 
+                        onChange={e => {
+                          recordUserTyping();
+                          setNightSales({...nightSales, count: formatNumber(e.target.value)});
+                        }} 
+                      />
                       {nightSales.count && <span className="text-[10px] text-gray-400 mt-0.5">실적: {netNightCount.toLocaleString()}건</span>}
                     </div>
                   )}
@@ -1413,7 +1611,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.marketing.amount || '0'}원</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.marketing.amount} onChange={e => setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, amount: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0원" 
+                      value={discountStatus.marketing.amount} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, amount: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
                 <div className="flex items-center justify-between">
@@ -1421,7 +1634,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.marketing.count || '0'}건</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.marketing.count} onChange={e => setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, count: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0건" 
+                      value={discountStatus.marketing.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, count: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
               </div>
@@ -1440,7 +1668,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.event.amount || '0'}원</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.event.amount} onChange={e => setDiscountStatus({...discountStatus, event: {...discountStatus.event, amount: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0원" 
+                      value={discountStatus.event.amount} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, event: {...discountStatus.event, amount: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
                 <div className="flex items-center justify-between">
@@ -1448,7 +1691,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.event.count || '0'}건</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.event.count} onChange={e => setDiscountStatus({...discountStatus, event: {...discountStatus.event, count: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0건" 
+                      value={discountStatus.event.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, event: {...discountStatus.event, count: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
               </div>
@@ -1467,7 +1725,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.other.amount || '0'}원</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.other.amount} onChange={e => setDiscountStatus({...discountStatus, other: {...discountStatus.other, amount: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0원" 
+                      value={discountStatus.other.amount} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, other: {...discountStatus.other, amount: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
                 <div className="flex items-center justify-between">
@@ -1475,7 +1748,22 @@ export default function DailyReport() {
                   {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.other.count || '0'}건</p>
                   ) : (
-                    <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.other.count} onChange={e => setDiscountStatus({...discountStatus, other: {...discountStatus.other, count: formatNumber(e.target.value)}})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" 
+                      placeholder="0건" 
+                      value={discountStatus.other.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setDiscountStatus({...discountStatus, other: {...discountStatus.other, count: formatNumber(e.target.value)}});
+                      }} 
+                    />
                   )}
                 </div>
               </div>
@@ -1492,7 +1780,11 @@ export default function DailyReport() {
                 className="w-full bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-xl px-4 py-3 outline-none transition-all text-sm min-h-[80px] resize-none" 
                 placeholder="서비스 및 할인 관련 특이사항(예: 인플루언서 방문 메뉴, 이벤트 특이 반응 등)을 자유롭게 기록해주세요." 
                 value={discountStatus.other.note} 
-                onChange={e => setDiscountStatus({...discountStatus, other: {...discountStatus.other, note: e.target.value}})} 
+                onFocus={recordUserTyping}
+                onChange={e => {
+                  recordUserTyping();
+                  setDiscountStatus({...discountStatus, other: {...discountStatus.other, note: e.target.value}});
+                }} 
               />
             )}
           </div>
@@ -1572,7 +1864,22 @@ export default function DailyReport() {
                   {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-green-800 px-1">{reviewKindness.count || '0'}</p>
                   ) : (
-                    <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-green-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-green-700 outline-none focus:ring-2 focus:ring-green-500 text-center" placeholder="0" value={reviewKindness.count} onChange={e => setReviewKindness({...reviewKindness, count: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric" 
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-8 sm:w-14 bg-white border border-green-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-green-700 outline-none focus:ring-2 focus:ring-green-500 text-center" 
+                      placeholder="0" 
+                      value={reviewKindness.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setReviewKindness({...reviewKindness, count: e.target.value.replace(/[^0-9]/g, '')});
+                      }} 
+                    />
                   )}
                   <span className="text-[10px] sm:text-xs text-green-600 font-medium mb-0.5">건</span>
                 </div>
@@ -1587,7 +1894,22 @@ export default function DailyReport() {
                   {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-orange-800 px-1">{reviewDelicious.count || '0'}</p>
                   ) : (
-                    <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-orange-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-orange-700 outline-none focus:ring-2 focus:ring-orange-500 text-center" placeholder="0" value={reviewDelicious.count} onChange={e => setReviewDelicious({...reviewDelicious, count: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric" 
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-8 sm:w-14 bg-white border border-orange-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-orange-700 outline-none focus:ring-2 focus:ring-orange-500 text-center" 
+                      placeholder="0" 
+                      value={reviewDelicious.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setReviewDelicious({...reviewDelicious, count: e.target.value.replace(/[^0-9]/g, '')});
+                      }} 
+                    />
                   )}
                   <span className="text-[10px] sm:text-xs text-orange-600 font-medium mb-0.5">건</span>
                 </div>
@@ -1602,7 +1924,22 @@ export default function DailyReport() {
                   {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-gray-800 px-1">{reviewNormal.count || '0'}</p>
                   ) : (
-                    <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-gray-300 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-gray-700 outline-none focus:ring-2 focus:ring-gray-400 text-center" placeholder="0" value={reviewNormal.count} onChange={e => setReviewNormal({...reviewNormal, count: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric" 
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-8 sm:w-14 bg-white border border-gray-300 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-gray-700 outline-none focus:ring-2 focus:ring-gray-400 text-center" 
+                      placeholder="0" 
+                      value={reviewNormal.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setReviewNormal({...reviewNormal, count: e.target.value.replace(/[^0-9]/g, '')});
+                      }} 
+                    />
                   )}
                   <span className="text-[10px] sm:text-xs text-gray-500 font-medium mb-0.5">건</span>
                 </div>
@@ -1617,7 +1954,22 @@ export default function DailyReport() {
                   {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-red-800 px-1">{reviewUncomfortable.count || '0'}</p>
                   ) : (
-                    <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-red-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-500 text-center" placeholder="0" value={reviewUncomfortable.count} onChange={e => setReviewUncomfortable({...reviewUncomfortable, count: e.target.value.replace(/[^0-9]/g, '')})} />
+                    <input 
+                      type="text" 
+                      inputMode="numeric" 
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
+                      className="w-8 sm:w-14 bg-white border border-red-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-500 text-center" 
+                      placeholder="0" 
+                      value={reviewUncomfortable.count} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setReviewUncomfortable({...reviewUncomfortable, count: e.target.value.replace(/[^0-9]/g, '')});
+                      }} 
+                    />
                   )}
                   <span className="text-[10px] sm:text-xs text-red-600 font-medium mb-0.5">건</span>
                 </div>
@@ -1641,7 +1993,22 @@ export default function DailyReport() {
                       {isReviewsLockedEff ? (
                         <span className="text-sm font-bold text-gray-800 px-1">{reviewDetails[item.key as keyof typeof reviewDetails] || '0'}</span>
                       ) : (
-                        <input type="text" inputMode="numeric" className="w-8 sm:w-12 text-center outline-none text-sm font-medium bg-gray-50 rounded py-0.5" placeholder="0" value={reviewDetails[item.key as keyof typeof reviewDetails] as string} onChange={e => setReviewDetails({...reviewDetails, [item.key]: e.target.value.replace(/[^0-9]/g, '')})} />
+                        <input 
+                          type="text" 
+                          inputMode="numeric" 
+                          pattern="[0-9]*"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          onFocus={recordUserTyping}
+                          className="w-8 sm:w-12 text-center outline-none text-sm font-medium bg-gray-50 rounded py-0.5" 
+                          placeholder="0" 
+                          value={reviewDetails[item.key as keyof typeof reviewDetails] as string} 
+                          onChange={e => {
+                            recordUserTyping();
+                            setReviewDetails({...reviewDetails, [item.key]: e.target.value.replace(/[^0-9]/g, '')});
+                          }} 
+                        />
                       )}
                       <span className="text-[10px] text-gray-400">건</span>
                     </div>
@@ -1657,7 +2024,11 @@ export default function DailyReport() {
                   className="w-full bg-white border border-red-200 focus:border-red-500 focus:ring-2 focus:ring-red-100 rounded-lg p-3 text-sm outline-none resize-none min-h-[80px]"
                   placeholder="불편 리뷰사항이 재발되지 않도록 하려면 어떻게 해야될지 작성해주세요."
                   value={reviewDetails.note}
-                  onChange={e => setReviewDetails({...reviewDetails, note: e.target.value})}
+                  onFocus={recordUserTyping}
+                  onChange={e => {
+                    recordUserTyping();
+                    setReviewDetails({...reviewDetails, note: e.target.value});
+                  }}
                 ></textarea>
               )}
             </div>
@@ -1720,10 +2091,17 @@ export default function DailyReport() {
                   ) : (
                     <input 
                       type="text" 
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onFocus={recordUserTyping}
                       className="w-full bg-gray-50 border border-gray-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 rounded px-2 py-1 text-sm font-medium outline-none transition-all" 
                       placeholder="예: -2" 
                       value={fridgeTemps[area.key as keyof typeof fridgeTemps] as string} 
-                      onChange={e => setFridgeTemps({...fridgeTemps, [area.key]: e.target.value})} 
+                      onChange={e => {
+                        recordUserTyping();
+                        setFridgeTemps({...fridgeTemps, [area.key]: e.target.value});
+                      }} 
                     />
                   )}
                   <span className="text-xs text-gray-400 ml-1">°C</span>

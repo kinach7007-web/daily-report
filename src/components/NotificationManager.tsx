@@ -3,7 +3,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, limit, orderBy, Timestamp } from 'firebase/firestore';
 import { Bell, AlertTriangle, FileText, UserCheck, X, CheckCircle2, Share, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { registerFCMToken, subscribeForegroundMessages } from '../lib/fcm';
+import { registerFCMToken, subscribeForegroundMessages, ensureServiceWorkerRegistered } from '../lib/fcm';
 
 interface NotificationItem {
   id: string;
@@ -96,20 +96,26 @@ export default function NotificationManager() {
 
   const [isIos, setIsIos] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const isInitialMount = useRef(true);
 
-  // Detect iOS and Standalone status
+  // Detect iOS and Standalone status & pre-register Service Worker
   useEffect(() => {
     setIsIos(checkIsIos());
     setIsStandalone(checkIsStandalone());
+    ensureServiceWorkerRegistered().catch(() => {});
   }, []);
 
   // Auto register/sync FCM Token when permission is granted and user is logged in
   useEffect(() => {
-    if (permission === 'granted') {
-      registerFCMToken(currentUser).catch((err) => {
+    if (permission === 'granted' && currentUser) {
+      registerFCMToken(currentUser).then((res) => {
+        if (res.success) {
+          console.log('[FCM] Token synced for user:', currentUser.name);
+        }
+      }).catch((err) => {
         console.warn('[FCM] Auto-registration notice:', err);
       });
     }
@@ -271,26 +277,39 @@ export default function NotificationManager() {
       return;
     }
     try {
+      setIsRegistering(true);
       const result = await Notification.requestPermission();
       setPermission(result);
 
       if (result === 'granted') {
-        dismissBanner();
         playNotificationSound();
         triggerVibration();
-        await registerFCMToken(currentUser);
-        dispatchSystemNotification(
-          '🔔 실시간 알림이 활성화되었습니다',
-          '영업일보 마감, 컴플레인, 면접일지 등록 시 실시간으로 알림을 전송합니다.'
-        );
-        if (isUserInitiated) {
-          alert('🔔 실시간 알림이 성공적으로 켜졌습니다!\n새 보고서나 마감, 컴플레인 발생 시 기기로 알림이 전송됩니다.');
+        const regRes = await registerFCMToken(currentUser);
+        if (regRes.success) {
+          dismissBanner();
+          dispatchSystemNotification(
+            '🔔 실시간 알림이 활성화되었습니다',
+            '영업일보 마감, 컴플레인, 면접일지 등록 시 실시간으로 알림을 전송합니다.'
+          );
+          if (isUserInitiated) {
+            alert(`🔔 실시간 알림 등록 완료!\n\n[${currentUser?.name || '운영자'}]님의 기기가 성공적으로 등록되었습니다.\n영업일보 마감, 매출 확정/수정 시 기기로 알림이 전송됩니다.`);
+          }
+        } else {
+          console.error('[NotificationManager] Registration error:', regRes.error);
+          if (isUserInitiated) {
+            alert(`⚠️ 기기 알림 등록 실패\n\n원인: ${regRes.error || '알림 토큰 발급에 실패했습니다.'}\n\n※ 아이폰의 경우 반드시 사파리 하단 공유 [↑] 버튼 > [홈 화면에 추가]로 설치된 앱에서 실행해야 알림을 받을 수 있습니다.`);
+          }
         }
       } else if (result === 'denied' && isUserInitiated) {
         alert('알림 권한이 차단되어 있습니다. 브라우저 주소창 왼쪽 자물쇠(또는 설정) 아이콘을 눌러 알림을 [허용]으로 변경해 주세요.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Notification permission request error:', e);
+      if (isUserInitiated) {
+        alert(`알림 등록 중 오류가 발생했습니다: ${e?.message || e}`);
+      }
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -501,11 +520,12 @@ export default function NotificationManager() {
                   <div className="mt-2.5 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={requestPermission}
-                      className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white text-xs font-bold py-1.5 px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      disabled={isRegistering}
+                      onClick={() => requestPermission(true)}
+                      className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white text-xs font-bold py-1.5 px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>알림 허용</span>
+                      <span>{isRegistering ? '등록 중...' : '알림 허용'}</span>
                     </button>
                     <button
                       type="button"

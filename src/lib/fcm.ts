@@ -37,50 +37,96 @@ export const getMessagingClient = async (): Promise<Messaging | null> => {
   return null;
 };
 
+// Pre-register Service Worker to guarantee instant pushManager readiness
+export const ensureServiceWorkerRegistered = async (): Promise<ServiceWorkerRegistration | null> => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+    return reg;
+  } catch (err) {
+    console.warn('[FCM] SW pre-registration warning:', err);
+    return null;
+  }
+};
+
 // Register Service Worker and acquire Push Subscription / FCM device token
-export const registerFCMToken = async (user?: UserAccount | null): Promise<{ token: string | null; subscription?: any; error?: string }> => {
+export const registerFCMToken = async (
+  user?: UserAccount | null
+): Promise<{ success: boolean; token: string | null; subscription?: any; error?: string }> => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     console.warn('[FCM] ServiceWorker or Notification API is missing in browser.');
-    return { token: null, error: '이 브라우저는 서비스워커 또는 웹 푸시 알림을 지원하지 않습니다.' };
+    return { success: false, token: null, error: '이 기기나 브라우저는 웹 푸시 알림을 지원하지 않습니다.' };
   }
 
   try {
-    // 1. Request Browser Notification Permission
-    const permission = await Notification.requestPermission();
+    // 1. Request Browser Notification Permission (Immediate)
+    let permission = Notification.permission;
+    if (permission !== 'granted') {
+      permission = await Notification.requestPermission();
+    }
     if (permission !== 'granted') {
       console.log('[FCM] Notification permission was not granted:', permission);
-      return { token: null, error: `알림 권한이 허용되지 않았습니다 (${permission}). 브라우저 또는 기기 설정에서 알림을 허용해주세요.` };
+      return { 
+        success: false, 
+        token: null, 
+        error: `알림 권한이 허용되지 않았습니다 (${permission}). 기기 설정이나 브라우저에서 알림을 [허용]으로 변경해주세요.` 
+      };
     }
 
-    // 2. Register /firebase-messaging-sw.js
-    const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-      scope: '/'
-    });
-    await navigator.serviceWorker.ready;
+    // 2. Service Worker Registration - Instant check
+    let swRegistration: ServiceWorkerRegistration;
+    try {
+      swRegistration = await navigator.serviceWorker.ready;
+    } catch {
+      swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+      await navigator.serviceWorker.ready;
+    }
 
-    // 3. Acquire fresh native W3C Push Subscription using server VAPID key
+    if (!swRegistration || !swRegistration.pushManager) {
+      return { 
+        success: false, 
+        token: null, 
+        error: '푸시 관리자를 초기화할 수 없습니다. 아이폰(iOS)의 경우 사파리 하단 공유 [↑] 버튼 > [홈 화면에 추가] 후 실행해 주세요.' 
+      };
+    }
+
+    // 3. Directly acquire or reuse native W3C Push Subscription
     const convertedVapidKey = urlBase64ToUint8Array(FCM_VAPID_KEY);
     let pushSubscription = await swRegistration.pushManager.getSubscription();
 
-    // If an existing subscription was registered with an older/different VAPID key,
-    // we must unsubscribe it first, otherwise Apple APNs throws "VapidPkHashMismatch"
-    if (pushSubscription) {
+    if (!pushSubscription) {
+      // Direct subscribe without any intermediate unsubscription delay to preserve iOS user gesture
       try {
-        console.log('[FCM] Refreshing existing subscription to ensure VAPID key consistency...');
-        await pushSubscription.unsubscribe();
-      } catch (unsubErr) {
-        console.warn('[FCM] Non-blocking error during unsubscribe:', unsubErr);
+        pushSubscription = await swRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        });
+      } catch (subErr: any) {
+        console.warn('[FCM] PushManager subscribe error, retrying cleanly:', subErr);
+        // Clean retry if needed
+        const existing = await swRegistration.pushManager.getSubscription();
+        if (existing) {
+          await existing.unsubscribe().catch(() => {});
+        }
+        pushSubscription = await swRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        });
       }
     }
 
-    pushSubscription = await swRegistration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: convertedVapidKey
-    });
-
     const subJson = pushSubscription ? pushSubscription.toJSON() : null;
+    const endpoint = pushSubscription?.endpoint || '';
 
-    // 4. Optionally also get Firebase FCM token
+    if (!endpoint) {
+      return {
+        success: false,
+        token: null,
+        error: '푸시 서버 수신 주소(Endpoint) 생성에 실패했습니다. 네트워크 상태를 확인해주세요.'
+      };
+    }
+
+    // 4. Optionally acquire Firebase FCM token
     let fcmToken: string | null = null;
     try {
       const messaging = await getMessagingClient();
@@ -90,12 +136,11 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
         }).catch(() => null);
       }
     } catch {
-      // FCM token optional when native subscription is available
+      // FCM token optional when native W3C subscription is available
     }
 
     // 5. Save/Update to Firestore `fcm_tokens`
-    // Use endpoint hash or token ID
-    const docIdSource = pushSubscription?.endpoint || fcmToken || `device_${Date.now()}`;
+    const docIdSource = endpoint || fcmToken || `device_${Date.now()}`;
     const tokenDocId = docIdSource.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60);
     const tokenRef = doc(db, 'fcm_tokens', tokenDocId);
 
@@ -112,7 +157,7 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
 
     await setDoc(tokenRef, {
       subscription: subJson,
-      endpoint: pushSubscription?.endpoint || '',
+      endpoint: endpoint,
       token: fcmToken || (subJson ? JSON.stringify(subJson) : ''),
       userId: user?.id || user?.username || 'guest',
       userName: user?.name || '대표 운영자',
@@ -123,11 +168,19 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
       active: true
     }, { merge: true });
 
-    console.log('[FCM] Successfully registered device subscription to Firestore:', tokenDocId);
-    return { token: fcmToken || JSON.stringify(subJson), subscription: subJson };
+    console.log('[FCM] Successfully registered device subscription to Firestore:', tokenDocId, 'User:', user?.name);
+    return { 
+      success: true, 
+      token: fcmToken || JSON.stringify(subJson), 
+      subscription: subJson 
+    };
   } catch (err: any) {
     console.error('[FCM] Error registering push token/subscription:', err);
-    return { token: null, error: err?.message || String(err) };
+    return { 
+      success: false, 
+      token: null, 
+      error: err?.message || String(err) 
+    };
   }
 };
 
