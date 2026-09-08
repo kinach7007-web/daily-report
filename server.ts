@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getMessaging, Message } from 'firebase-admin/messaging';
 import firebaseConfig from './firebase-applet-config.json';
+import { serviceAccount as bundledServiceAccount } from './src/lib/serviceAccount';
 
 // Initialize Firebase Admin SDK lazily/safely
 let adminApp: App | null = null;
@@ -25,12 +26,7 @@ function getFirebaseAdminApp() {
         serviceAccount = JSON.parse(decoded);
       }
     } else {
-      // Check for service-account.json in workspace
-      const serviceAccountPath = path.join(process.cwd(), 'service-account.json');
-      if (fs.existsSync(serviceAccountPath)) {
-        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-        serviceAccount = JSON.parse(fileContent);
-      }
+      serviceAccount = bundledServiceAccount;
     }
 
     if (serviceAccount) {
