@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getMessaging, Message } from 'firebase-admin/messaging';
@@ -12,9 +13,10 @@ let adminInitialized = false;
 function getFirebaseAdminApp() {
   if (adminInitialized && adminApp) return adminApp;
   try {
+    let serviceAccount: any = null;
     const rawSecret = process.env.FIREBASE_SERVICE_ACCOUNT;
+    
     if (rawSecret && rawSecret.trim()) {
-      let serviceAccount: any;
       try {
         serviceAccount = JSON.parse(rawSecret);
       } catch (parseErr) {
@@ -22,7 +24,16 @@ function getFirebaseAdminApp() {
         const decoded = Buffer.from(rawSecret, 'base64').toString('utf8');
         serviceAccount = JSON.parse(decoded);
       }
+    } else {
+      // Check for service-account.json in workspace
+      const serviceAccountPath = path.join(process.cwd(), 'service-account.json');
+      if (fs.existsSync(serviceAccountPath)) {
+        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+        serviceAccount = JSON.parse(fileContent);
+      }
+    }
 
+    if (serviceAccount) {
       if (getApps().length === 0) {
         adminApp = initializeApp({
           credential: cert(serviceAccount),
@@ -34,7 +45,7 @@ function getFirebaseAdminApp() {
       adminInitialized = true;
       console.log('✅ [Server] Firebase Admin SDK initialized successfully with Service Account');
     } else {
-      console.log('ℹ️ [Server] FIREBASE_SERVICE_ACCOUNT not found in environment, falling back to Web FCM Relay');
+      console.log('ℹ️ [Server] FIREBASE_SERVICE_ACCOUNT not found, falling back to Web FCM Relay');
     }
   } catch (error) {
     console.error('⚠️ [Server] Error initializing Firebase Admin SDK:', error);
