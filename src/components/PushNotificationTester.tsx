@@ -83,12 +83,12 @@ export default function PushNotificationTester() {
   const handleRegisterCurrentDevice = async () => {
     setRegisterStatus('등록 중...');
     try {
-      const token = await registerFCMToken(currentUser);
-      if (token) {
+      const result = await registerFCMToken(currentUser);
+      if (result.token) {
         setRegisterStatus('✅ 현재 기기가 푸시 수신 기기로 등록되었습니다!');
         await fetchDevices();
       } else {
-        setRegisterStatus('❌ 브라우저 알림 권한이 거부되었거나 지원되지 않습니다. 아이폰 설정 > 알림 및 Safari 설정을 확인해주세요.');
+        setRegisterStatus(`❌ 등록 실패: ${result.error || '알림 권한을 확인해주세요.'}`);
       }
     } catch (err: any) {
       setRegisterStatus(`❌ 등록 오류: ${err?.message || err}`);

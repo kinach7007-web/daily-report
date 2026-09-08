@@ -25,10 +25,10 @@ export const getMessagingClient = async (): Promise<Messaging | null> => {
 };
 
 // Register Service Worker and acquire FCM device token
-export const registerFCMToken = async (user?: UserAccount | null): Promise<string | null> => {
+export const registerFCMToken = async (user?: UserAccount | null): Promise<{ token: string | null; error?: string }> => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     console.warn('[FCM] ServiceWorker or Notification API is missing in browser.');
-    return null;
+    return { token: null, error: '브라우저가 서비스워커 또는 알림 API를 지원하지 않습니다.' };
   }
 
   try {
@@ -36,7 +36,7 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<strin
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       console.log('[FCM] Notification permission was not granted:', permission);
-      return null;
+      return { token: null, error: `알림 권한 상태: ${permission} (권한을 허용해야 합니다)` };
     }
 
     // 2. Register /firebase-messaging-sw.js
@@ -49,7 +49,7 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<strin
     const messaging = await getMessagingClient();
     if (!messaging) {
       console.warn('[FCM] Messaging could not be initialized.');
-      return null;
+      return { token: null, error: 'Firebase Messaging 클라이언트를 초기화할 수 없습니다.' };
     }
 
     // 4. Retrieve FCM Token with VAPID Key
@@ -60,7 +60,7 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<strin
 
     if (!token) {
       console.warn('[FCM] No registration token available.');
-      return null;
+      return { token: null, error: 'FCM 기기 토큰을 생성하지 못했습니다.' };
     }
 
     // 5. Save/Update Token to Firestore `fcm_tokens` collection
@@ -82,10 +82,10 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<strin
     }, { merge: true });
 
     console.log('[FCM] Successfully registered device token to Firestore:', tokenDocId);
-    return token;
-  } catch (err) {
+    return { token };
+  } catch (err: any) {
     console.error('[FCM] Error registering FCM token:', err);
-    return null;
+    return { token: null, error: err?.message || String(err) };
   }
 };
 
