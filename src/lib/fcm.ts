@@ -1,9 +1,22 @@
 import { getMessaging, getToken, onMessage, isSupported, type Messaging } from 'firebase/messaging';
 import { app, db } from './firebase';
-import { doc, setDoc, serverTimestamp, collection, getDocs, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { UserAccount } from '../types';
 
-export const FCM_VAPID_KEY = 'BGfczqa3B2WjmUafaaYdYEyrPY238iEPVxkZE_IWfqz8CQuyOk498O_e8A28eW4SSKUnFs_MfKrcao6T82Nkj_Q';
+// VAPID Public Key matching the server's VAPID key pair
+export const FCM_VAPID_KEY = 'BHJ5lK7wj84lNsbD8d4Qxk5jOsHVb3u-8OBgABmiW_4dlrAbnE7LzscuxyIJy7F4YNT-LbhE2qyYoo4QiJFeg7U';
+
+// Utility to convert base64url VAPID key to Uint8Array for PushManager
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 let messagingInstance: Messaging | null = null;
 
@@ -24,11 +37,11 @@ export const getMessagingClient = async (): Promise<Messaging | null> => {
   return null;
 };
 
-// Register Service Worker and acquire FCM device token
-export const registerFCMToken = async (user?: UserAccount | null): Promise<{ token: string | null; error?: string }> => {
+// Register Service Worker and acquire Push Subscription / FCM device token
+export const registerFCMToken = async (user?: UserAccount | null): Promise<{ token: string | null; subscription?: any; error?: string }> => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     console.warn('[FCM] ServiceWorker or Notification API is missing in browser.');
-    return { token: null, error: '브라우저가 서비스워커 또는 알림 API를 지원하지 않습니다.' };
+    return { token: null, error: '이 브라우저는 서비스워커 또는 웹 푸시 알림을 지원하지 않습니다.' };
   }
 
   try {
@@ -36,7 +49,7 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       console.log('[FCM] Notification permission was not granted:', permission);
-      return { token: null, error: `알림 권한 상태: ${permission} (권한을 허용해야 합니다)` };
+      return { token: null, error: `알림 권한이 허용되지 않았습니다 (${permission}). 브라우저 또는 기기 설정에서 알림을 허용해주세요.` };
     }
 
     // 2. Register /firebase-messaging-sw.js
@@ -45,46 +58,65 @@ export const registerFCMToken = async (user?: UserAccount | null): Promise<{ tok
     });
     await navigator.serviceWorker.ready;
 
-    // 3. Initialize Messaging
-    const messaging = await getMessagingClient();
-    if (!messaging) {
-      console.warn('[FCM] Messaging could not be initialized.');
-      return { token: null, error: 'Firebase Messaging 클라이언트를 초기화할 수 없습니다.' };
+    // 3. Acquire native W3C Push Subscription using server VAPID key
+    let pushSubscription = await swRegistration.pushManager.getSubscription();
+    if (!pushSubscription) {
+      const convertedVapidKey = urlBase64ToUint8Array(FCM_VAPID_KEY);
+      pushSubscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedVapidKey
+      });
     }
 
-    // 4. Retrieve FCM Token with VAPID Key
-    const token = await getToken(messaging, {
-      vapidKey: FCM_VAPID_KEY,
-      serviceWorkerRegistration: swRegistration
-    });
+    const subJson = pushSubscription ? pushSubscription.toJSON() : null;
 
-    if (!token) {
-      console.warn('[FCM] No registration token available.');
-      return { token: null, error: 'FCM 기기 토큰을 생성하지 못했습니다.' };
+    // 4. Optionally also get Firebase FCM token
+    let fcmToken: string | null = null;
+    try {
+      const messaging = await getMessagingClient();
+      if (messaging) {
+        fcmToken = await getToken(messaging, {
+          serviceWorkerRegistration: swRegistration
+        }).catch(() => null);
+      }
+    } catch {
+      // FCM token optional when native subscription is available
     }
 
-    // 5. Save/Update Token to Firestore `fcm_tokens` collection
-    const tokenDocId = token.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60);
+    // 5. Save/Update to Firestore `fcm_tokens`
+    // Use endpoint hash or token ID
+    const docIdSource = pushSubscription?.endpoint || fcmToken || `device_${Date.now()}`;
+    const tokenDocId = docIdSource.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60);
     const tokenRef = doc(db, 'fcm_tokens', tokenDocId);
 
     const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+    const isAndroid = /Android/.test(navigator.userAgent);
+
+    let platformLabel = 'Desktop (PC/Mac)';
+    if (isIos) {
+      platformLabel = isStandalone ? '📱 iPhone (홈화면 앱)' : '⚠️ iPhone (사파리 브라우저)';
+    } else if (isAndroid) {
+      platformLabel = isStandalone ? '📱 Android (홈화면 앱)' : '📱 Android (크롬 모바일)';
+    }
 
     await setDoc(tokenRef, {
-      token: token,
+      subscription: subJson,
+      endpoint: pushSubscription?.endpoint || '',
+      token: fcmToken || (subJson ? JSON.stringify(subJson) : ''),
       userId: user?.id || user?.username || 'guest',
-      userName: user?.name || '사용자',
-      userRole: user?.role || '직원',
-      platform: isIos ? (isStandalone ? 'iOS-PWA' : 'iOS-Safari') : 'Android-or-Desktop',
+      userName: user?.name || '대표 운영자',
+      userRole: user?.role || '총괄 운영자',
+      platform: platformLabel,
       userAgent: navigator.userAgent,
       updatedAt: serverTimestamp(),
       active: true
     }, { merge: true });
 
-    console.log('[FCM] Successfully registered device token to Firestore:', tokenDocId);
-    return { token };
+    console.log('[FCM] Successfully registered device subscription to Firestore:', tokenDocId);
+    return { token: fcmToken || JSON.stringify(subJson), subscription: subJson };
   } catch (err: any) {
-    console.error('[FCM] Error registering FCM token:', err);
+    console.error('[FCM] Error registering push token/subscription:', err);
     return { token: null, error: err?.message || String(err) };
   }
 };

@@ -4,8 +4,24 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getMessaging, Message } from 'firebase-admin/messaging';
+import webpush from 'web-push';
 import firebaseConfig from './firebase-applet-config.json';
 import { serviceAccount as bundledServiceAccount } from './src/lib/serviceAccount';
+
+// VAPID keys for direct W3C standard Web Push (Apple APNs & Google Push Service)
+export const SERVER_VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BHJ5lK7wj84lNsbD8d4Qxk5jOsHVb3u-8OBgABmiW_4dlrAbnE7LzscuxyIJy7F4YNT-LbhE2qyYoo4QiJFeg7U';
+export const SERVER_VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'aPM2Wl4gxVrBpl0LD2GDHx_z5HgjBZ07O-hFXKxw3ao';
+
+try {
+  webpush.setVapidDetails(
+    'mailto:kinach7007@gmail.com',
+    SERVER_VAPID_PUBLIC_KEY,
+    SERVER_VAPID_PRIVATE_KEY
+  );
+  console.log('✅ [Server] Web-Push VAPID configured successfully');
+} catch (e: any) {
+  console.warn('⚠️ [Server] Failed to configure webpush VAPID:', e?.message);
+}
 
 // Initialize Firebase Admin SDK lazily/safely
 let adminApp: App | null = null;
@@ -64,8 +80,49 @@ async function startServer() {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      adminPushReady: adminInitialized
+      adminPushReady: adminInitialized,
+      webPushReady: true
     });
+  });
+
+  // Return server VAPID Public Key for native Web Push registration
+  app.get('/api/vapid-public-key', (req, res) => {
+    res.json({ publicKey: SERVER_VAPID_PUBLIC_KEY });
+  });
+
+  // Direct W3C standard Web Push endpoint
+  // Works natively for Apple APNs (iOS Safari / PWA) and Google Chrome (Android / Desktop)
+  app.post('/api/send-web-push', async (req, res) => {
+    try {
+      const { subscription, title, body, url, tag } = req.body;
+      if (!subscription || !subscription.endpoint) {
+        return res.status(400).json({ error: 'Missing push subscription object' });
+      }
+
+      const payload = JSON.stringify({
+        title: title || '🔔 뼈반집 알림',
+        body: body || '새로운 업무/매출 보고가 등록되었습니다.',
+        url: url || '/',
+        tag: tag || `webpush-${Date.now()}`
+      });
+
+      console.log('[Server] Dispatching webpush to endpoint:', subscription.endpoint.slice(0, 45) + '...');
+      const pushRes = await webpush.sendNotification(subscription, payload, {
+        urgency: 'high',
+        TTL: 86400
+      });
+
+      console.log('[Server] ✅ Web Push sent successfully! Status code:', pushRes.statusCode);
+      return res.json({ success: true, statusCode: pushRes.statusCode, mode: 'w3c-webpush' });
+    } catch (err: any) {
+      console.warn('[Server] ⚠️ Web Push delivery error:', err?.statusCode, err?.message);
+      const isExpired = err?.statusCode === 404 || err?.statusCode === 410;
+      return res.status(err?.statusCode && err?.statusCode < 500 ? 200 : 500).json({
+        success: false,
+        error: isExpired ? 'subscription-expired' : (err?.message || 'Failed to dispatch push'),
+        statusCode: err?.statusCode
+      });
+    }
   });
 
   // Relay FCM Web Push API
