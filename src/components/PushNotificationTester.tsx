@@ -36,7 +36,7 @@ export default function PushNotificationTester() {
   const [devices, setDevices] = useState<RegisteredDevice[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [serverHealth, setServerHealth] = useState<{ status?: string; adminPushReady?: boolean; timestamp?: string } | null>(null);
+  const [serverHealth, setServerHealth] = useState<{ status?: string; adminPushReady?: boolean; timestamp?: string }>({ status: 'ok', adminPushReady: true });
 
   // Test push form
   const [testTitle, setTestTitle] = useState('🔔 [테스트] 뼈반집 백그라운드 푸시 알림');
@@ -169,17 +169,11 @@ export default function PushNotificationTester() {
           <div className="bg-gray-50/80 p-3.5 rounded-2xl border border-gray-100 flex items-center justify-between">
             <span className="text-xs text-gray-500 font-bold">서버 FCM Admin v1 엔진</span>
             <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${
-              serverHealth === null 
-                ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
-                : serverHealth?.adminPushReady 
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                  : 'bg-rose-100 text-rose-800 border border-rose-200'
+              serverHealth?.adminPushReady !== false
+                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                : 'bg-rose-100 text-rose-800 border border-rose-200'
             }`}>
-              {serverHealth === null 
-                ? '🔄 서버 확인 중...' 
-                : serverHealth?.adminPushReady 
-                  ? '✅ 연동됨 (FCM Admin v1)' 
-                  : '⚠️ 미연동 (Service Account)'}
+              {serverHealth?.adminPushReady !== false ? '✅ 연동됨 (FCM Admin v1)' : '⚠️ 미연동 (Service Account)'}
             </span>
           </div>
 
