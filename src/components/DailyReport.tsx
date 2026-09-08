@@ -17,7 +17,9 @@ import {
   Calendar,
   Gift,
   Edit2,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 
 // Reusable card wrapper
@@ -134,6 +136,11 @@ export default function DailyReport() {
   const [toastMessage, setToastMessage] = useState('');
   const [showCheerModal, setShowCheerModal] = useState(false);
   const [lastSavedDate, setLastSavedDate] = useState('');
+  const [isConfirmedState, setIsConfirmedState] = useState<boolean>(() => {
+    const saved = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+    const rec = saved.find((r: any) => r.date === getBusinessDate());
+    return Boolean(rec?.isConfirmed);
+  });
 
   const [touchStartY, setTouchStartY] = useState(0);
   const [pullDistance, setPullDistance] = useState(0);
@@ -170,6 +177,9 @@ export default function DailyReport() {
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
+        if (record) {
+          setIsConfirmedState(Boolean(record.isConfirmed));
+        }
         if (record && record.sales) {
           const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
           const idx = savedReports.findIndex(r => r.date === selectedDate);
@@ -316,15 +326,9 @@ export default function DailyReport() {
             ...(docSnap.data() as any)
           });
         });
-        if (firestoreList.length > 0) {
-          const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-          const combinedMap = new Map<string, DailyReportRecord>();
-          localData.forEach(r => combinedMap.set(r.date, r));
-          firestoreList.forEach(r => combinedMap.set(r.date, r));
-          const merged = Array.from(combinedMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(merged));
-          window.dispatchEvent(new Event('storage'));
-        }
+        firestoreList.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreList));
+        window.dispatchEvent(new Event('storage'));
       }, (err) => {
         console.warn('Global dailyReports sync note:', err);
       });
@@ -345,6 +349,9 @@ export default function DailyReport() {
       isInitializedFromCloudRef.current = true;
       if (docSnap.exists()) {
         const record = docSnap.data() as DailyReportRecord;
+        if (record) {
+          setIsConfirmedState(Boolean(record.isConfirmed));
+        }
         if (record && record.sales) {
           // Update history list safely in background
           const savedReports: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
@@ -421,6 +428,10 @@ export default function DailyReport() {
   // When date changes from outside, sync fields to that date
   useEffect(() => {
     if (isRemoteUpdateRef.current) return;
+    const historyList: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+    const pastRec = historyList.find(r => r.date === selectedDate);
+    setIsConfirmedState(Boolean(pastRec?.isConfirmed));
+
     const vals = loadStateForDate(selectedDate);
     if (vals) {
       setLunchSales(vals.lunchSales);
@@ -543,6 +554,19 @@ export default function DailyReport() {
     };
   };
 
+  const savedReportsHistory: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
+  const currentRecord = savedReportsHistory.find(r => r.date === currentBusinessDate);
+  const isCurrentDateConfirmed = Boolean(isConfirmedState || currentRecord?.isConfirmed);
+  const isAdmin = Boolean(currentUser?.isAdmin);
+  const isLockedForStaff = isCurrentDateConfirmed && !isAdmin;
+
+  const isLunchLocked = lunchSales.isLocked || isLockedForStaff;
+  const isDinnerLocked = dinnerSales.isLocked || isLockedForStaff;
+  const isNightLocked = nightSales.isLocked || isLockedForStaff;
+  const isDiscountLocked = discountStatus.isLocked || isLockedForStaff;
+  const isReviewsLockedEff = isReviewsLocked || isLockedForStaff;
+  const isFridgeLocked = fridgeTemps.isLocked || isLockedForStaff;
+
   // Explicit Save Handler called ONLY when user clicks [확정], [수정], [확인], [전체 확정]
   const saveConfirmedSection = async (
     reportPayload: DailyReportRecord,
@@ -554,6 +578,12 @@ export default function DailyReport() {
       count?: string;
     }
   ) => {
+    if (isCurrentDateConfirmed && !isAdmin) {
+      setToastMessage('⚠️ 이미 마감된 영업일보는 오타 및 부정 수정을 방지하기 위해 관리자만 수정할 수 있습니다.');
+      setTimeout(() => setToastMessage(''), 3000);
+      return;
+    }
+
     try {
       const today = selectedDate;
 
@@ -629,9 +659,10 @@ export default function DailyReport() {
 
       setToastMessage(message);
       setTimeout(() => setToastMessage(''), 2500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving confirmed section:', err);
-      setToastMessage('저장 중 문제가 발생했습니다.');
+      alert('클라우드 서버 저장에 실패했습니다. 인터넷 연결을 확인해주세요: ' + (err?.message || err));
+      setToastMessage('⚠️ 클라우드 저장 실패');
       setTimeout(() => setToastMessage(''), 2500);
     }
   };
@@ -654,12 +685,6 @@ export default function DailyReport() {
     };
     localStorage.setItem(`daily_report_draft_${selectedDate}`, JSON.stringify(stateObj));
   }, [lunchSales, dinnerSales, nightSales, reviewKindness, reviewDelicious, reviewNormal, reviewUncomfortable, reviewDetails, isReviewsLocked, fridgeTemps, discountStatus, selectedDate]);
-
-
-
-  const savedReportsHistory: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-  const currentRecord = savedReportsHistory.find(r => r.date === currentBusinessDate);
-  const isCurrentDateConfirmed = Boolean(currentRecord?.isConfirmed);
 
   const handleSaveDailyReport = async () => {
     const today = selectedDate;
@@ -938,8 +963,9 @@ export default function DailyReport() {
       }, { merge: true });
 
       localStorage.removeItem(`daily_report_draft_${today}`);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Firestore sync failed', e);
+      alert('⚠️ 주의: 일일보고서의 클라우드 서버 저장 중 오류가 발생했습니다. 인터넷 연결 상태를 확인해주세요: ' + (e?.message || e));
     }
   };
 
@@ -1059,6 +1085,41 @@ export default function DailyReport() {
         </div>
       </div>
 
+      {/* 마감 상태 및 관리자 수정 권한 안내 배너 */}
+      {isCurrentDateConfirmed && (
+        isAdmin ? (
+          <div className="bg-blue-50/85 border border-blue-200 rounded-2xl p-4 flex items-center gap-3.5 text-blue-900 shadow-sm animate-in fade-in">
+            <div className="p-2.5 bg-blue-100 text-blue-700 rounded-xl shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold">마감 완료된 영업일보</span>
+                <span className="text-[11px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">관리자 수정 모드</span>
+              </div>
+              <p className="text-xs text-blue-700/90 mt-0.5">
+                이미 마감이 완료된 영업일보입니다. 일반 직원은 수정이 잠겨있으며, 관리자 권한으로 오타 수정 및 재확정이 가능합니다.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex items-center gap-3.5 text-amber-900 shadow-sm animate-in fade-in">
+            <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold">마감 완료된 영업일보</span>
+                <span className="text-[11px] bg-amber-600 text-white px-2 py-0.5 rounded-full font-bold">수정 불가 (잠금)</span>
+              </div>
+              <p className="text-xs text-amber-700 mt-0.5">
+                이미 마감이 완료된 영업일보입니다. 오타 및 부정 수정을 방지하기 위해 일반 직원은 수정할 수 없으며, 관리자 계정만 수정할 수 있습니다.
+              </p>
+            </div>
+          </div>
+        )
+      )}
+
       {/* Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
@@ -1087,12 +1148,16 @@ export default function DailyReport() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Lunch Input */}
-            <div className={`p-4 rounded-2xl border transition-all ${lunchSales.isLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isLunchLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="flex justify-between items-center mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span> 점심 매출 (15:00)
                 </h4>
-                {lunchSales.isLocked ? (
+                {isLockedForStaff ? (
+                  <span className="text-[10px] bg-gray-100 text-gray-400 px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> 마감완료
+                  </span>
+                ) : lunchSales.isLocked ? (
                   <button 
                     onClick={() => {
                       const newLunch = { ...lunchSales, isLocked: false };
@@ -1131,7 +1196,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">매출액</label>
-                  {lunchSales.isLocked ? (
+                  {isLunchLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{lunchSales.amount || '0'}원</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={lunchSales.amount} onChange={e => setLunchSales({...lunchSales, amount: formatNumber(e.target.value)})} />
@@ -1139,7 +1204,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">건수</label>
-                  {lunchSales.isLocked ? (
+                  {isLunchLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{lunchSales.count || '0'}건</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={lunchSales.count} onChange={e => setLunchSales({...lunchSales, count: formatNumber(e.target.value)})} />
@@ -1149,12 +1214,16 @@ export default function DailyReport() {
             </div>
 
             {/* Dinner Input */}
-            <div className={`p-4 rounded-2xl border transition-all ${dinnerSales.isLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isDinnerLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="flex justify-between items-center mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-indigo-400"></span> 저녁 매출 (22:00)
                 </h4>
-                {dinnerSales.isLocked ? (
+                {isLockedForStaff ? (
+                  <span className="text-[10px] bg-gray-100 text-gray-400 px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> 마감완료
+                  </span>
+                ) : dinnerSales.isLocked ? (
                   <button 
                     onClick={() => {
                       const newDinner = { ...dinnerSales, isLocked: false };
@@ -1193,7 +1262,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">매출액</label>
-                  {dinnerSales.isLocked ? (
+                  {isDinnerLocked ? (
                     <p className="text-sm font-bold text-indigo-600 px-1 w-28 text-right">{netDinnerAmount.toLocaleString()}원</p>
                   ) : (
                     <div className="flex flex-col items-end">
@@ -1204,7 +1273,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">건수</label>
-                  {dinnerSales.isLocked ? (
+                  {isDinnerLocked ? (
                     <p className="text-sm font-bold text-indigo-600 px-1 w-28 text-right">{netDinnerCount.toLocaleString()}건</p>
                   ) : (
                     <div className="flex flex-col items-end">
@@ -1217,12 +1286,16 @@ export default function DailyReport() {
             </div>
 
             {/* Night Input */}
-            <div className={`p-4 rounded-2xl border transition-all ${nightSales.isLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isNightLocked ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="flex justify-between items-center mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span> 야간 매출 (10:00)
                 </h4>
-                {nightSales.isLocked ? (
+                {isLockedForStaff ? (
+                  <span className="text-[10px] bg-gray-100 text-gray-400 px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> 마감완료
+                  </span>
+                ) : nightSales.isLocked ? (
                   <button 
                     onClick={() => {
                       const newNight = { ...nightSales, isLocked: false };
@@ -1261,7 +1334,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">매출액</label>
-                  {nightSales.isLocked ? (
+                  {isNightLocked ? (
                     <p className="text-sm font-bold text-purple-600 px-1 w-28 text-right">{netNightAmount.toLocaleString()}원</p>
                   ) : (
                     <div className="flex flex-col items-end">
@@ -1272,7 +1345,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-12">건수</label>
-                  {nightSales.isLocked ? (
+                  {isNightLocked ? (
                     <p className="text-sm font-bold text-purple-600 px-1 w-28 text-right">{netNightCount.toLocaleString()}건</p>
                   ) : (
                     <div className="flex flex-col items-end">
@@ -1294,7 +1367,11 @@ export default function DailyReport() {
               할인 및 서비스 현황
             </h3>
             <div className="flex items-center gap-2">
-              {discountStatus.isLocked ? (
+              {isLockedForStaff ? (
+                <span className="text-xs bg-gray-100 text-gray-400 px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5" /> 마감완료
+                </span>
+              ) : discountStatus.isLocked ? (
                 <button 
                   onClick={() => {
                     const newDiscount = { ...discountStatus, isLocked: false };
@@ -1302,7 +1379,7 @@ export default function DailyReport() {
                     const payload = buildCurrentReportObject({ discount: newDiscount });
                     saveConfirmedSection(payload, '할인 및 서비스 현황이 수정 모드로 전환되었습니다.');
                   }} 
-                  className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                  className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold cursor-pointer"
                 >
                   수정
                 </button>
@@ -1314,7 +1391,7 @@ export default function DailyReport() {
                     const payload = buildCurrentReportObject({ discount: newDiscount });
                     saveConfirmedSection(payload, '할인 및 서비스 현황이 확정 및 저장되었습니다.');
                   }} 
-                  className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                  className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm cursor-pointer"
                 >
                   확정
                 </button>
@@ -1324,7 +1401,7 @@ export default function DailyReport() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Marketing */}
-            <div className={`p-4 rounded-2xl border transition-all ${discountStatus.isLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isDiscountLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> 마케팅 (블로거/인플루언서)
@@ -1333,7 +1410,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">서비스 금액</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.marketing.amount || '0'}원</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.marketing.amount} onChange={e => setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, amount: formatNumber(e.target.value)}})} />
@@ -1341,7 +1418,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">건수</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.marketing.count || '0'}건</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.marketing.count} onChange={e => setDiscountStatus({...discountStatus, marketing: {...discountStatus.marketing, count: formatNumber(e.target.value)}})} />
@@ -1351,7 +1428,7 @@ export default function DailyReport() {
             </div>
 
             {/* Event */}
-            <div className={`p-4 rounded-2xl border transition-all ${discountStatus.isLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isDiscountLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span> 이벤트
@@ -1360,7 +1437,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">서비스 금액</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.event.amount || '0'}원</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.event.amount} onChange={e => setDiscountStatus({...discountStatus, event: {...discountStatus.event, amount: formatNumber(e.target.value)}})} />
@@ -1368,7 +1445,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">건수</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.event.count || '0'}건</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.event.count} onChange={e => setDiscountStatus({...discountStatus, event: {...discountStatus.event, count: formatNumber(e.target.value)}})} />
@@ -1378,7 +1455,7 @@ export default function DailyReport() {
             </div>
 
             {/* Other Services */}
-            <div className={`p-4 rounded-2xl border transition-all ${discountStatus.isLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+            <div className={`p-4 rounded-2xl border transition-all ${isDiscountLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
               <div className="mb-3">
                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span> 기타 서비스
@@ -1387,7 +1464,7 @@ export default function DailyReport() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">서비스 금액</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.other.amount || '0'}원</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0원" value={discountStatus.other.amount} onChange={e => setDiscountStatus({...discountStatus, other: {...discountStatus.other, amount: formatNumber(e.target.value)}})} />
@@ -1395,7 +1472,7 @@ export default function DailyReport() {
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-500 w-16">건수</label>
-                  {discountStatus.isLocked ? (
+                  {isDiscountLocked ? (
                     <p className="text-sm font-bold text-gray-800 px-1 w-28 text-right">{discountStatus.other.count || '0'}건</p>
                   ) : (
                     <input type="text" className="w-28 bg-white border border-gray-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 rounded-lg px-3 py-1.5 outline-none transition-all text-sm text-right" placeholder="0건" value={discountStatus.other.count} onChange={e => setDiscountStatus({...discountStatus, other: {...discountStatus.other, count: formatNumber(e.target.value)}})} />
@@ -1406,9 +1483,9 @@ export default function DailyReport() {
           </div>
 
           {/* Special Notes (Full Width) */}
-          <div className={`mt-4 p-4 rounded-2xl border transition-all ${discountStatus.isLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+          <div className={`mt-4 p-4 rounded-2xl border transition-all ${isDiscountLocked ? 'bg-white border-rose-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
             <h4 className="text-xs font-bold text-gray-500 mb-2">할인 및 서비스 특이사항</h4>
-            {discountStatus.isLocked ? (
+            {isDiscountLocked ? (
               <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100 min-h-[60px] whitespace-pre-wrap">{discountStatus.other.note || '특이사항 없음'}</p>
             ) : (
               <textarea 
@@ -1433,60 +1510,66 @@ export default function DailyReport() {
                 <span className="text-[10px] sm:text-xs font-bold text-amber-600">총 리뷰 수</span>
                 <span className="text-sm sm:text-lg font-black text-amber-700">{totalReviews}개</span>
               </div>
-              <button 
-                onClick={() => {
-                  const willLock = !isReviewsLocked;
-                  setIsReviewsLocked(willLock);
-                  const newDetails = { ...reviewDetails, isLocked: willLock };
-                  setReviewDetails(newDetails);
-                  const newKindness = { ...reviewKindness, isLocked: willLock };
-                  const newDelicious = { ...reviewDelicious, isLocked: willLock };
-                  const newNormal = { ...reviewNormal, isLocked: willLock };
-                  const newUncomfortable = { ...reviewUncomfortable, isLocked: willLock };
-                  setReviewKindness(newKindness);
-                  setReviewDelicious(newDelicious);
-                  setReviewNormal(newNormal);
-                  setReviewUncomfortable(newUncomfortable);
+              {isLockedForStaff ? (
+                <span className="px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-gray-100 text-gray-400 flex items-center gap-2">
+                  <Lock className="w-4 h-4" /> 마감완료
+                </span>
+              ) : (
+                <button 
+                  onClick={() => {
+                    const willLock = !isReviewsLocked;
+                    setIsReviewsLocked(willLock);
+                    const newDetails = { ...reviewDetails, isLocked: willLock };
+                    setReviewDetails(newDetails);
+                    const newKindness = { ...reviewKindness, isLocked: willLock };
+                    const newDelicious = { ...reviewDelicious, isLocked: willLock };
+                    const newNormal = { ...reviewNormal, isLocked: willLock };
+                    const newUncomfortable = { ...reviewUncomfortable, isLocked: willLock };
+                    setReviewKindness(newKindness);
+                    setReviewDelicious(newDelicious);
+                    setReviewNormal(newNormal);
+                    setReviewUncomfortable(newUncomfortable);
 
-                  const payload = buildCurrentReportObject({
-                    reviews: {
-                      kindness: newKindness,
-                      delicious: newDelicious,
-                      normal: newNormal,
-                      uncomfortable: newUncomfortable,
-                      details: newDetails,
-                      isLocked: willLock
-                    }
-                  });
-                  saveConfirmedSection(
-                    payload,
-                    willLock ? '리뷰 관리가 전체 확정 및 저장되었습니다.' : '리뷰 관리가 수정 모드로 전환되었습니다.'
-                  );
-                }}
-                className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${
-                  isReviewsLocked 
-                    ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
-                    : 'bg-rose-500 text-white shadow-lg shadow-rose-200 hover:bg-rose-600'
-                }`}
-              >
-                {isReviewsLocked ? (
-                  <><Edit2 className="w-4 h-4" /> 수정</>
-                ) : (
-                  <><CheckCircle2 className="w-4 h-4" /> 전체 확정</>
-                )}
-              </button>
+                    const payload = buildCurrentReportObject({
+                      reviews: {
+                        kindness: newKindness,
+                        delicious: newDelicious,
+                        normal: newNormal,
+                        uncomfortable: newUncomfortable,
+                        details: newDetails,
+                        isLocked: willLock
+                      }
+                    });
+                    saveConfirmedSection(
+                      payload,
+                      willLock ? '리뷰 관리가 전체 확정 및 저장되었습니다.' : '리뷰 관리가 수정 모드로 전환되었습니다.'
+                    );
+                  }}
+                  className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                    isReviewsLocked 
+                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
+                      : 'bg-rose-500 text-white shadow-lg shadow-rose-200 hover:bg-rose-600'
+                  }`}
+                >
+                  {isReviewsLocked ? (
+                    <><Edit2 className="w-4 h-4" /> 수정</>
+                  ) : (
+                    <><CheckCircle2 className="w-4 h-4" /> 전체 확정</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
           
           <div className="space-y-6">
             <div className="grid grid-cols-4 gap-2">
               {/* 친절 */}
-              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLocked ? 'bg-white border-green-200 shadow-sm' : 'bg-green-50 border-green-100'}`}>
+              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLockedEff ? 'bg-white border-green-200 shadow-sm' : 'bg-green-50 border-green-100'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <p className="text-[10px] sm:text-xs font-bold text-green-700">친절</p>
                 </div>
                 <div className="flex items-end gap-1">
-                  {isReviewsLocked ? (
+                  {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-green-800 px-1">{reviewKindness.count || '0'}</p>
                   ) : (
                     <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-green-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-green-700 outline-none focus:ring-2 focus:ring-green-500 text-center" placeholder="0" value={reviewKindness.count} onChange={e => setReviewKindness({...reviewKindness, count: e.target.value.replace(/[^0-9]/g, '')})} />
@@ -1496,12 +1579,12 @@ export default function DailyReport() {
               </div>
 
               {/* 맛있음 */}
-              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLocked ? 'bg-white border-orange-200 shadow-sm' : 'bg-orange-50 border-orange-100'}`}>
+              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLockedEff ? 'bg-white border-orange-200 shadow-sm' : 'bg-orange-50 border-orange-100'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <p className="text-[10px] sm:text-xs font-bold text-orange-700">맛있음</p>
                 </div>
                 <div className="flex items-end gap-1">
-                  {isReviewsLocked ? (
+                  {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-orange-800 px-1">{reviewDelicious.count || '0'}</p>
                   ) : (
                     <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-orange-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-orange-700 outline-none focus:ring-2 focus:ring-orange-500 text-center" placeholder="0" value={reviewDelicious.count} onChange={e => setReviewDelicious({...reviewDelicious, count: e.target.value.replace(/[^0-9]/g, '')})} />
@@ -1511,12 +1594,12 @@ export default function DailyReport() {
               </div>
 
               {/* 보통 */}
-              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLocked ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
+              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLockedEff ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <p className="text-[10px] sm:text-xs font-bold text-gray-600">보통</p>
                 </div>
                 <div className="flex items-end gap-1">
-                  {isReviewsLocked ? (
+                  {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-gray-800 px-1">{reviewNormal.count || '0'}</p>
                   ) : (
                     <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-gray-300 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-gray-700 outline-none focus:ring-2 focus:ring-gray-400 text-center" placeholder="0" value={reviewNormal.count} onChange={e => setReviewNormal({...reviewNormal, count: e.target.value.replace(/[^0-9]/g, '')})} />
@@ -1526,12 +1609,12 @@ export default function DailyReport() {
               </div>
 
               {/* 불편 */}
-              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLocked ? 'bg-white border-red-200 shadow-sm' : 'bg-red-50 border-red-100'}`}>
+              <div className={`rounded-xl p-2 sm:p-3 border transition-all ${isReviewsLockedEff ? 'bg-white border-red-200 shadow-sm' : 'bg-red-50 border-red-100'}`}>
                 <div className="flex justify-between items-start mb-2">
                   <p className="text-[10px] sm:text-xs font-bold text-red-700">불편</p>
                 </div>
                 <div className="flex items-end gap-1">
-                  {isReviewsLocked ? (
+                  {isReviewsLockedEff ? (
                     <p className="text-lg sm:text-xl font-bold text-red-800 px-1">{reviewUncomfortable.count || '0'}</p>
                   ) : (
                     <input type="text" inputMode="numeric" className="w-8 sm:w-14 bg-white border border-red-200 rounded px-1 sm:px-2 py-1 text-sm sm:text-base font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-500 text-center" placeholder="0" value={reviewUncomfortable.count} onChange={e => setReviewUncomfortable({...reviewUncomfortable, count: e.target.value.replace(/[^0-9]/g, '')})} />
@@ -1541,7 +1624,7 @@ export default function DailyReport() {
               </div>
             </div>
             
-            <div className={`rounded-xl p-5 border transition-all ${isReviewsLocked ? 'bg-white border-red-200 shadow-sm' : 'bg-red-50/50 border-red-100'}`}>
+            <div className={`rounded-xl p-5 border transition-all ${isReviewsLockedEff ? 'bg-white border-red-200 shadow-sm' : 'bg-red-50/50 border-red-100'}`}>
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm font-bold text-red-800">불편 리뷰 상세 및 대책</p>
               </div>
@@ -1555,7 +1638,7 @@ export default function DailyReport() {
                   <div key={item.key} className="flex flex-col items-center justify-center bg-white py-2 px-1 rounded-lg border border-red-100">
                     <span className="text-[10px] sm:text-xs text-gray-600 mb-1 whitespace-nowrap">{item.label}</span>
                     <div className="flex items-center gap-0.5">
-                      {isReviewsLocked ? (
+                      {isReviewsLockedEff ? (
                         <span className="text-sm font-bold text-gray-800 px-1">{reviewDetails[item.key as keyof typeof reviewDetails] || '0'}</span>
                       ) : (
                         <input type="text" inputMode="numeric" className="w-8 sm:w-12 text-center outline-none text-sm font-medium bg-gray-50 rounded py-0.5" placeholder="0" value={reviewDetails[item.key as keyof typeof reviewDetails] as string} onChange={e => setReviewDetails({...reviewDetails, [item.key]: e.target.value.replace(/[^0-9]/g, '')})} />
@@ -1565,7 +1648,7 @@ export default function DailyReport() {
                   </div>
                 ))}
               </div>
-              {isReviewsLocked ? (
+              {isReviewsLockedEff ? (
                 <div className="w-full bg-gray-50 border border-gray-100 rounded-lg p-4 text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">
                   {reviewDetails.note || '작성된 대책이 없습니다.'}
                 </div>
@@ -1588,7 +1671,11 @@ export default function DailyReport() {
               <div className="p-2 bg-teal-50 rounded-lg"><CheckSquare className="w-5 h-5 text-teal-600" /></div>
               매장 일일 냉장고 온도체크
             </h3>
-            {fridgeTemps.isLocked ? (
+            {isLockedForStaff ? (
+              <span className="text-xs bg-gray-100 text-gray-400 px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5" /> 마감완료
+              </span>
+            ) : fridgeTemps.isLocked ? (
               <button 
                 onClick={() => {
                   const newFridge = { ...fridgeTemps, isLocked: false };
@@ -1596,7 +1683,7 @@ export default function DailyReport() {
                   const payload = buildCurrentReportObject({ fridgeTemps: newFridge });
                   saveConfirmedSection(payload, '냉장고 온도체크가 수정 모드로 전환되었습니다.');
                 }} 
-                className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold"
+                className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors font-semibold cursor-pointer"
               >
                 수정
               </button>
@@ -1608,13 +1695,13 @@ export default function DailyReport() {
                   const payload = buildCurrentReportObject({ fridgeTemps: newFridge });
                   saveConfirmedSection(payload, '냉장고 온도체크가 확인 및 저장되었습니다.');
                 }} 
-                className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm"
+                className="text-xs bg-rose-400 text-white px-3 py-1.5 rounded-lg hover:bg-rose-500 transition-colors font-semibold shadow-sm cursor-pointer"
               >
                 확인
               </button>
             )}
           </div>
-          <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 p-4 rounded-xl border transition-all ${fridgeTemps.isLocked ? 'bg-white border-teal-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
+          <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 p-4 rounded-xl border transition-all ${isFridgeLocked ? 'bg-white border-teal-200 shadow-sm' : 'bg-gray-50 border-gray-100'}`}>
             {[
               { key: 'kitchen1', label: '주방1번' },
               { key: 'kitchen2', label: '주방2번' },
@@ -1628,7 +1715,7 @@ export default function DailyReport() {
               <div key={area.key} className="flex flex-col bg-white border border-gray-200 rounded-lg p-2.5">
                 <span className="text-xs font-bold text-gray-500 mb-1.5">{area.label}</span>
                 <div className="flex items-center">
-                  {fridgeTemps.isLocked ? (
+                  {isFridgeLocked ? (
                     <span className="text-lg font-bold text-teal-700 px-1">{fridgeTemps[area.key as keyof typeof fridgeTemps] || '-'}</span>
                   ) : (
                     <input 

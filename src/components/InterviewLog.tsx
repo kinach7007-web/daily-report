@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Plus, Save, Info, Calendar, ChevronLeft, ChevronRight, RotateCcw, Filter } from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 
@@ -49,9 +49,37 @@ export default function InterviewLog() {
   }, [formData]);
 
   React.useEffect(() => {
+    // 1. Initial load from localStorage
     const saved = localStorage.getItem('interviewsList');
     if (saved) {
-      setInterviews(JSON.parse(saved));
+      try {
+        setInterviews(JSON.parse(saved));
+      } catch (e) {}
+    }
+
+    // 2. Realtime listener from Firestore
+    try {
+      const q = collection(db, 'interviews');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const firestoreList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        firestoreList.sort((a, b) => {
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          return dateB.localeCompare(dateA);
+        });
+        setInterviews(firestoreList);
+        localStorage.setItem('interviewsList', JSON.stringify(firestoreList));
+      }, (error) => {
+        console.warn('Interview Firestore sync note:', error);
+      });
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Interview sync error:', e);
     }
   }, []);
 
@@ -90,7 +118,7 @@ export default function InterviewLog() {
     });
   }, [interviews, selectedYear, selectedMonth, showAllMonths]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.applicant) {
       setToastMessage('지원자 성함은 필수 입력 사항입니다.');
       setTimeout(() => setToastMessage(''), 3000);
@@ -102,8 +130,17 @@ export default function InterviewLog() {
       id: Date.now(),
       date: getBusinessDate()
     };
+
+    // 1. Sync to Firestore collection first
+    try {
+      await setDoc(doc(db, 'interviews', String(newInterview.id)), newInterview);
+    } catch (e: any) {
+      console.error('Interview DB write error:', e);
+      alert('클라우드 데이터베이스 저장에 실패했습니다. 네트워크 상태를 확인해주세요: ' + (e?.message || e));
+      return;
+    }
+
     const updatedInterviews = [newInterview, ...interviews];
-    
     setInterviews(updatedInterviews);
     localStorage.setItem('interviewsList', JSON.stringify(updatedInterviews));
     
@@ -114,10 +151,10 @@ export default function InterviewLog() {
     });
     localStorage.removeItem('interviewDraft');
     setIsFormOpen(false);
-    setToastMessage('면접 기록이 저장되었습니다.');
+    setToastMessage('면접 기록이 클라우드에 안전하게 저장되었습니다.');
     setTimeout(() => setToastMessage(''), 3000);
 
-    // Sync to Firestore for real-time notification
+    // Sync notification
     try {
       const author = currentUser ? `${currentUser.name} (${currentUser.role})` : (formData.interviewer || '면접관');
       const notifTitle = '👥 [면접일지] 면접일지 저장 알림';

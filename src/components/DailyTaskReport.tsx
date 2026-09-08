@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { db } from '../lib/firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { getBusinessDate } from './DailyReport';
 import { 
   ClipboardList, 
   Sun, 
@@ -92,8 +95,64 @@ export default function DailyTaskReport() {
   const openSectionRef = useRef<HTMLDivElement>(null);
   const closeSectionRef = useRef<HTMLDivElement>(null);
 
-  // Restore from localStorage
+  // Restore from localStorage and Firestore
   useEffect(() => {
+    const applyReportData = (data: any) => {
+      if (!data) return;
+      if (data.openDate) setOpenDate(data.openDate);
+      if (data.openWriter) setOpenWriter(data.openWriter);
+      if (data.openNight !== undefined) setOpenNight(data.openNight);
+      if (data.openDelivery !== undefined) setOpenDelivery(data.openDelivery);
+      if (data.openTotal !== undefined) setOpenTotal(data.openTotal);
+
+      if (data.openAttNormal !== undefined) setOpenAttNormal(data.openAttNormal);
+      if (data.openAttCount !== undefined) setOpenAttCount(data.openAttCount);
+      if (data.openAttReason !== undefined) setOpenAttReason(data.openAttReason);
+      if (data.openAttNote !== undefined) setOpenAttNote(data.openAttNote);
+      if (data.openAttNoteText !== undefined) setOpenAttNoteText(data.openAttNoteText);
+
+      if (data.openTaskPlan) setOpenTaskPlan(data.openTaskPlan);
+      else if (data.openBoneNote || data.openBanchanNote || data.openExtraNote) {
+        const parts = [
+          data.openBoneNote ? `뼈작업: ${data.openBoneNote}` : '',
+          data.openBanchanNote ? `부재료: ${data.openBanchanNote}` : '',
+          data.openExtraNote ? `포션작업: ${data.openExtraNote}` : ''
+        ].filter(Boolean);
+        setOpenTaskPlan(parts.join(' / '));
+      }
+
+      if (data.openHygieneNote !== undefined) setOpenHygieneNote(data.openHygieneNote);
+
+      if (data.openIssueNone !== undefined) setOpenIssueNone(data.openIssueNone);
+      if (data.openIssueText !== undefined) setOpenIssueText(data.openIssueText);
+
+      if (data.openFacilityNone !== undefined) setOpenFacilityNone(data.openFacilityNone);
+      if (data.openFacilityText !== undefined) setOpenFacilityText(data.openFacilityText);
+      if (data.openFacility2None !== undefined) setOpenFacility2None(data.openFacility2None);
+      if (data.openFacility2Text !== undefined) setOpenFacility2Text(data.openFacility2Text);
+
+      if (data.openEtc !== undefined) setOpenEtc(data.openEtc);
+
+      if (data.closeDate) setCloseDate(data.closeDate);
+      if (data.closeWriter) setCloseWriter(data.closeWriter);
+      if (data.closeLunch !== undefined) setCloseLunch(data.closeLunch);
+      if (data.closeDayDelivery !== undefined) setCloseDayDelivery(data.closeDayDelivery);
+      if (data.closeDayTotal !== undefined) setCloseDayTotal(data.closeDayTotal);
+
+      if (data.closeAttNormal !== undefined) setCloseAttNormal(data.closeAttNormal);
+      if (data.closeAttCount !== undefined) setCloseAttCount(data.closeAttCount);
+      if (data.closeAttReason !== undefined) setCloseAttReason(data.closeAttReason);
+      if (data.closeHandoverOk !== undefined) setCloseHandoverOk(data.closeHandoverOk);
+      if (data.closeHandoverText !== undefined) setCloseHandoverText(data.closeHandoverText);
+
+      if (data.closeTaskOk !== undefined) setCloseTaskOk(data.closeTaskOk);
+      if (data.closeTaskText !== undefined) setCloseTaskText(data.closeTaskText);
+
+      if (data.closeHygieneNote !== undefined) setCloseHygieneNote(data.closeHygieneNote);
+      if (data.closeNoteText !== undefined) setCloseNoteText(data.closeNoteText);
+      if (data.closeRequest !== undefined) setCloseRequest(data.closeRequest);
+    };
+
     try {
       const todayLabel = getTodayLabel();
       setOpenDate(todayLabel);
@@ -104,60 +163,25 @@ export default function DailyTaskReport() {
         if (!closeWriter) setCloseWriter(currentUser.name);
       }
 
+      // 1. Load from localStorage first
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
-        const data = JSON.parse(raw);
-        if (data.openWriter) setOpenWriter(data.openWriter);
-        if (data.openNight) setOpenNight(data.openNight);
-        if (data.openDelivery) setOpenDelivery(data.openDelivery);
-        if (data.openTotal) setOpenTotal(data.openTotal);
-
-        if (data.openAttNormal !== undefined) setOpenAttNormal(data.openAttNormal);
-        if (data.openAttCount) setOpenAttCount(data.openAttCount);
-        if (data.openAttReason) setOpenAttReason(data.openAttReason);
-        if (data.openAttNote !== undefined) setOpenAttNote(data.openAttNote);
-        if (data.openAttNoteText) setOpenAttNoteText(data.openAttNoteText);
-
-        if (data.openTaskPlan) setOpenTaskPlan(data.openTaskPlan);
-        else if (data.openBoneNote || data.openBanchanNote || data.openExtraNote) {
-          const parts = [
-            data.openBoneNote ? `뼈작업: ${data.openBoneNote}` : '',
-            data.openBanchanNote ? `부재료: ${data.openBanchanNote}` : '',
-            data.openExtraNote ? `포션작업: ${data.openExtraNote}` : ''
-          ].filter(Boolean);
-          setOpenTaskPlan(parts.join(' / '));
-        }
-
-        if (data.openHygieneNote) setOpenHygieneNote(data.openHygieneNote);
-
-        if (data.openIssueNone !== undefined) setOpenIssueNone(data.openIssueNone);
-        if (data.openIssueText) setOpenIssueText(data.openIssueText);
-
-        if (data.openFacilityNone !== undefined) setOpenFacilityNone(data.openFacilityNone);
-        if (data.openFacilityText) setOpenFacilityText(data.openFacilityText);
-        if (data.openFacility2None !== undefined) setOpenFacility2None(data.openFacility2None);
-        if (data.openFacility2Text) setOpenFacility2Text(data.openFacility2Text);
-
-        if (data.openEtc) setOpenEtc(data.openEtc);
-
-        if (data.closeWriter) setCloseWriter(data.closeWriter);
-        if (data.closeLunch) setCloseLunch(data.closeLunch);
-        if (data.closeDayDelivery) setCloseDayDelivery(data.closeDayDelivery);
-        if (data.closeDayTotal) setCloseDayTotal(data.closeDayTotal);
-
-        if (data.closeAttNormal !== undefined) setCloseAttNormal(data.closeAttNormal);
-        if (data.closeAttCount) setCloseAttCount(data.closeAttCount);
-        if (data.closeAttReason) setCloseAttReason(data.closeAttReason);
-        if (data.closeHandoverOk !== undefined) setCloseHandoverOk(data.closeHandoverOk);
-        if (data.closeHandoverText) setCloseHandoverText(data.closeHandoverText);
-
-        if (data.closeTaskOk !== undefined) setCloseTaskOk(data.closeTaskOk);
-        if (data.closeTaskText) setCloseTaskText(data.closeTaskText);
-
-        if (data.closeHygieneNote) setCloseHygieneNote(data.closeHygieneNote);
-        if (data.closeNoteText) setCloseNoteText(data.closeNoteText);
-        if (data.closeRequest) setCloseRequest(data.closeRequest);
+        applyReportData(JSON.parse(raw));
       }
+
+      // 2. Load from Firestore taskReports
+      const bDate = getBusinessDate();
+      const unsubscribe = onSnapshot(doc(db, 'taskReports', bDate), (docSnap) => {
+        if (docSnap.exists()) {
+          const cloudData = docSnap.data();
+          applyReportData(cloudData);
+          localStorage.setItem(STORE_KEY, JSON.stringify(cloudData));
+        }
+      }, (err) => {
+        console.warn('Firestore taskReport sync note:', err);
+      });
+
+      return () => unsubscribe();
     } catch (e) {
       console.warn('Failed to load draft:', e);
     }
@@ -170,7 +194,7 @@ export default function DailyTaskReport() {
     }
   }, [currentUser]);
 
-  // Save to localStorage
+  // Save to localStorage & sync to Firestore
   const saveDraft = () => {
     try {
       const data = {
@@ -184,6 +208,10 @@ export default function DailyTaskReport() {
         closeTaskOk, closeTaskText, closeHygieneNote, closeNoteText, closeRequest
       };
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
+
+      const bDate = getBusinessDate();
+      setDoc(doc(db, 'taskReports', bDate), { ...data, updatedAt: new Date() }, { merge: true })
+        .catch(e => console.warn('taskReports firestore sync error:', e));
     } catch (e) {
       console.warn('Failed to save draft:', e);
     }

@@ -263,12 +263,19 @@ export default function NotificationManager() {
     return () => unsubscribe();
   }, [sessionStartTime]);
 
-  const requestPermission = async () => {
-    if (typeof Notification === 'undefined') return;
+  const requestPermission = async (isUserInitiated: boolean = false) => {
+    if (typeof Notification === 'undefined') {
+      if (isUserInitiated) {
+        alert('이 기기(브라우저)는 웹 푸시 알림을 지원하지 않습니다.');
+      }
+      return;
+    }
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
+
       if (result === 'granted') {
+        dismissBanner();
         playNotificationSound();
         triggerVibration();
         await registerFCMToken(currentUser);
@@ -276,6 +283,11 @@ export default function NotificationManager() {
           '🔔 실시간 알림이 활성화되었습니다',
           '영업일보 마감, 컴플레인, 면접일지 등록 시 실시간으로 알림을 전송합니다.'
         );
+        if (isUserInitiated) {
+          alert('🔔 실시간 알림이 성공적으로 켜졌습니다!\n새 보고서나 마감, 컴플레인 발생 시 기기로 알림이 전송됩니다.');
+        }
+      } else if (result === 'denied' && isUserInitiated) {
+        alert('알림 권한이 차단되어 있습니다. 브라우저 주소창 왼쪽 자물쇠(또는 설정) 아이콘을 눌러 알림을 [허용]으로 변경해 주세요.');
       }
     } catch (e) {
       console.warn('Notification permission request error:', e);

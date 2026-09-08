@@ -140,8 +140,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     }
 
-    // Check against usersList
-    let matchedUser = usersList.find(u => u.username.toLowerCase() === trimmedUser.toLowerCase());
+    // Check against usersList (support matching by username or Korean name)
+    let matchedUser = usersList.find(
+      u => u.username.toLowerCase() === trimmedUser.toLowerCase() || 
+           u.name.toLowerCase() === trimmedUser.toLowerCase()
+    );
 
     // If not found in memory list, try fresh fetch from Firestore
     if (!matchedUser) {
@@ -167,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (!matchedUser) {
-      return { success: false, message: '등록되지 않은 아이디입니다. 운영자에게 계정 생성을 요청하세요.' };
+      return { success: false, message: '등록되지 않은 아이디(이름)입니다. 관리자에게 계정 등록을 요청하세요.' };
     }
 
     if (matchedUser.password !== trimmedPw) {

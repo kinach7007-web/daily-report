@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, doc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { DailyReportRecord } from '../types';
 import DailyReportViewer from './DailyReportViewer';
 import { 
@@ -37,20 +37,47 @@ export default function MonthlyReportList() {
     // 1. Initial load from localStorage
     try {
       const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-      setReports(localData);
+      if (localData && localData.length > 0) {
+        setReports(localData);
+      }
     } catch (e) {
       console.error('Local storage parse error:', e);
+    }
+
+    // 2. Real-time Firestore sync
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = onSnapshot(collection(db, 'dailyReports'), (snapshot) => {
+        const firestoreList: DailyReportRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({
+            id: docSnap.id,
+            ...(docSnap.data() as any)
+          });
+        });
+
+        firestoreList.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        setReports(firestoreList);
+        localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreList));
+      }, (err) => {
+        console.warn('MonthlyReportList Firestore sync notice:', err);
+      });
+    } catch (e) {
+      console.warn('MonthlyReportList sync error:', e);
     }
 
     const handleStorageChange = () => {
       try {
         const localData: DailyReportRecord[] = JSON.parse(localStorage.getItem('dailyReportsHistory') || '[]');
-        setReports(localData);
+        if (localData && localData.length > 0) {
+          setReports(localData);
+        }
       } catch (e) {}
     };
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
+      unsubscribe();
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);

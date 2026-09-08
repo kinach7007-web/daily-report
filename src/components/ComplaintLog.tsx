@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Save, AlertCircle, Calendar, ChevronLeft, ChevronRight, RotateCcw, Filter } from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 
@@ -41,9 +41,37 @@ export default function ComplaintLog() {
   }, [formData]);
 
   useEffect(() => {
+    // 1. Initial load from localStorage
     const saved = localStorage.getItem('complaintsList');
     if (saved) {
-      setComplaints(JSON.parse(saved));
+      try {
+        setComplaints(JSON.parse(saved));
+      } catch (e) {}
+    }
+
+    // 2. Realtime listener from Firestore
+    try {
+      const q = collection(db, 'complaints');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const firestoreList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+
+        firestoreList.sort((a, b) => {
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          return dateB.localeCompare(dateA);
+        });
+        setComplaints(firestoreList);
+        localStorage.setItem('complaintsList', JSON.stringify(firestoreList));
+      }, (error) => {
+        console.warn('Complaint Firestore sync note:', error);
+      });
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Complaint sync error:', e);
     }
   }, []);
 
@@ -82,7 +110,7 @@ export default function ComplaintLog() {
     });
   }, [complaints, selectedYear, selectedMonth, showAllMonths]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.date || !formData.problem) {
       setToastMessage('날짜와 문제점은 필수 입력 사항입니다.');
       setTimeout(() => setToastMessage(''), 3000);
@@ -90,8 +118,17 @@ export default function ComplaintLog() {
     }
     
     const newComplaint = { ...formData, id: Date.now() };
+
+    // 1. Sync to Firestore collection first
+    try {
+      await setDoc(doc(db, 'complaints', String(newComplaint.id)), newComplaint);
+    } catch (e: any) {
+      console.error('Complaint DB write error:', e);
+      alert('클라우드 데이터베이스 저장에 실패했습니다. 네트워크 상태를 확인해주세요: ' + (e?.message || e));
+      return;
+    }
+
     const updatedComplaints = [newComplaint, ...complaints];
-    
     setComplaints(updatedComplaints);
     localStorage.setItem('complaintsList', JSON.stringify(updatedComplaints));
     
@@ -109,10 +146,10 @@ export default function ComplaintLog() {
     });
     localStorage.removeItem('complaintDraft');
     setIsFormOpen(false);
-    setToastMessage('컴플레인이 저장되었습니다.');
+    setToastMessage('컴플레인이 클라우드에 안전하게 저장되었습니다.');
     setTimeout(() => setToastMessage(''), 3000);
 
-    // Sync to Firestore for real-time notification
+    // Sync notification
     try {
       const author = currentUser ? `${currentUser.name} (${currentUser.role})` : (formData.manager || '담당자');
       const problemSummary = formData.problem.length > 30 ? formData.problem.slice(0, 30) + '...' : formData.problem;

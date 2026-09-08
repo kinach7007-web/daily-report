@@ -194,10 +194,8 @@ export default function SalesStats() {
         snapshot.forEach((docSnap) => {
           firestoreReports.push(docSnap.data());
         });
-        if (firestoreReports.length > 0) {
-          setReportsHistory(firestoreReports);
-          localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreReports));
-        }
+        setReportsHistory(firestoreReports);
+        localStorage.setItem('dailyReportsHistory', JSON.stringify(firestoreReports));
       }, (error) => {
         console.warn("Firestore snapshot notice (using local storage data):", error?.message || error);
       });
