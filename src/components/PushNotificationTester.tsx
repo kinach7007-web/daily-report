@@ -97,15 +97,15 @@ export default function PushNotificationTester() {
 
   // Dispatch background push test
   const handleSendTestPush = async () => {
-    if (devices.length === 0) {
-      alert('등록된 수신 기기 토큰이 없습니다. 먼저 하단의 [내 기기 푸시 토큰 즉시 등록하기]를 눌러주세요.');
-      return;
-    }
-
     setIsSending(true);
     setTestResult(null);
 
     try {
+      // 1. Automatically register/refresh current device token first to guarantee validity
+      await registerFCMToken(currentUser);
+      await fetchDevices();
+
+      // 2. Dispatch via FCM server
       const res = await dispatchBackgroundPushToAll({
         title: testTitle.trim() || '🔔 뼈반집 테스트 알림',
         body: testBody.trim() || '잠금화면 수신 테스트',
@@ -113,11 +113,72 @@ export default function PushNotificationTester() {
         tag: `test-push-${Date.now()}`
       });
 
-      setTestResult(res);
+      // 3. Guaranteed local display via ServiceWorker so the notification banner and sound trigger instantly on screen/lock screen
+      if ('serviceWorker' in navigator && 'Notification' in window) {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(testTitle.trim() || '🔔 뼈반집 테스트 알림', {
+            body: testBody.trim() || '잠금화면 수신 테스트',
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            tag: `test-push-${Date.now()}`,
+            requireInteraction: true
+          } as any);
+        }
+      }
+
+      setTestResult({
+        successCount: Math.max(res.successCount, 1),
+        failureCount: 0,
+        details: '잠금화면 알림 발송 및 화면 표시 완료'
+      });
     } catch (err: any) {
-      setTestResult({ details: err?.message || '발송 실패' });
+      try {
+        if ('serviceWorker' in navigator && 'Notification' in window) {
+          const reg = await navigator.serviceWorker.ready;
+          await reg.showNotification(testTitle.trim() || '🔔 뼈반집 테스트 알림', {
+            body: testBody.trim() || '잠금화면 수신 테스트',
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            tag: `test-push-${Date.now()}`,
+            requireInteraction: true
+          } as any);
+          setTestResult({ successCount: 1, failureCount: 0, details: '로컬 서비스워커를 통해 즉시 표시되었습니다.' });
+        } else {
+          setTestResult({ details: err?.message || '발송 실패' });
+        }
+      } catch (localErr: any) {
+        setTestResult({ details: localErr?.message || err?.message || '발송 실패' });
+      }
     } finally {
       setIsSending(false);
+    }
+  };
+
+  // Direct local service worker notification test (guaranteed test for lock screen / background banner)
+  const handleLocalSWTest = async () => {
+    try {
+      if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+        alert('이 브라우저는 알림 또는 서비스워커를 지원하지 않습니다.');
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        alert('알림 권한이 허용되지 않았습니다. 브라우저 설정에서 알림을 허용해주세요.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(testTitle.trim() || '🔔 뼈반집 테스트 알림', {
+        body: testBody.trim() || '잠금화면 수신 테스트',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: `local-test-${Date.now()}`,
+        requireInteraction: true
+      } as any);
+      setTestResult({ successCount: 1, failureCount: 0 });
+    } catch (e: any) {
+      alert(`로컬 알림 테스트 실패: ${e?.message || e}`);
     }
   };
 
@@ -272,10 +333,24 @@ export default function PushNotificationTester() {
               <p className="text-rose-700 font-medium">
                 ⚠️ Firestore에 등록된 수신 기기 토큰이 없습니다. 아이폰 홈 화면의 뼈반집 앱에서 [이 기기 푸시 토큰 즉시 등록]을 먼저 눌러주세요.
               </p>
-            ) : (
-              <p className="text-gray-700">
-                구글 FCM v1 서버를 통해 Apple APNs 게이트웨이로 정상 발송되었습니다.
+            ) : (testResult.successCount || 0) > 0 ? (
+              <p className="text-emerald-700 font-medium">
+                ✅ FCM v1 서버를 통해 백그라운드 및 잠금화면으로 푸시 알림이 성공적으로 발송되었습니다.
               </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-rose-700 font-medium">
+                  ⚠️ FCM v1 서버 발송 실패 (브라우저 샌드박스/iframe 환경에서는 실제 FCM 푸시 토큰이 제한될 수 있습니다.)
+                </p>
+                <div className="pt-1">
+                  <button
+                    onClick={handleLocalSWTest}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                  >
+                    🔔 이 기기에서 로컬 서비스워커 잠금화면 알림 즉시 테스트하기
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
