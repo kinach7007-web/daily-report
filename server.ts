@@ -16,6 +16,7 @@ function getFirebaseAdminApp() {
   try {
     let serviceAccount: any = null;
     const rawSecret = process.env.FIREBASE_SERVICE_ACCOUNT;
+    console.log('[Server] Checking FIREBASE_SERVICE_ACCOUNT env, length:', rawSecret?.length || 0);
     
     if (rawSecret && rawSecret.trim()) {
       try {
@@ -26,10 +27,12 @@ function getFirebaseAdminApp() {
         serviceAccount = JSON.parse(decoded);
       }
     } else {
+      console.log('[Server] Using bundledServiceAccount');
       serviceAccount = bundledServiceAccount;
     }
 
     if (serviceAccount) {
+      console.log('[Server] serviceAccount loaded, project_id:', serviceAccount.project_id);
       if (getApps().length === 0) {
         adminApp = initializeApp({
           credential: cert(serviceAccount),
@@ -43,8 +46,8 @@ function getFirebaseAdminApp() {
     } else {
       console.log('ℹ️ [Server] FIREBASE_SERVICE_ACCOUNT not found, falling back to Web FCM Relay');
     }
-  } catch (error) {
-    console.error('⚠️ [Server] Error initializing Firebase Admin SDK:', error);
+  } catch (error: any) {
+    console.error('⚠️ [Server] Error initializing Firebase Admin SDK:', error?.message || error, error?.stack);
   }
   return adminApp;
 }
@@ -81,10 +84,6 @@ async function startServer() {
         try {
           const message: Message = {
             token: token,
-            notification: {
-              title: String(title),
-              body: String(body || '')
-            },
             data: {
               title: String(title),
               body: String(body || ''),
@@ -93,6 +92,13 @@ async function startServer() {
               tag: String(tag || `push-${Date.now()}`)
             },
             webpush: {
+              notification: {
+                title: String(title),
+                body: String(body || ''),
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: String(tag || `push-${Date.now()}`)
+              },
               headers: {
                 Urgency: 'high'
               },
