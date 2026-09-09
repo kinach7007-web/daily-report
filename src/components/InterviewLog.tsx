@@ -12,11 +12,14 @@ import {
   Copy,
   Check,
   X,
-  MessageSquareQuote
+  MessageSquareQuote,
+  Edit2,
+  Trash2,
+  ShieldAlert
 } from 'lucide-react';
 import { getBusinessDate } from './DailyReport';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, Timestamp, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { dispatchBackgroundPushToAll } from '../lib/pushDispatcher';
 
@@ -25,6 +28,7 @@ export default function InterviewLog() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [interviews, setInterviews] = useState<any[]>([]);
   const [selectedInterview, setSelectedInterview] = useState<any | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
 
   // Preview & Copy Modal State
@@ -138,6 +142,37 @@ export default function InterviewLog() {
     });
   }, [interviews, selectedYear, selectedMonth, showAllMonths]);
 
+  
+  const handleEdit = (item: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (currentUser.role !== 'admin') {
+      alert('관리자만 수정할 수 있습니다.');
+      return;
+    }
+    setFormData(item);
+    setEditingId(item.id || item.applicant);
+    setIsFormOpen(true);
+    setSelectedInterview(null);
+  };
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (currentUser.role !== 'admin') {
+      alert('관리자만 삭제할 수 있습니다.');
+      return;
+    }
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+    try {
+      await deleteDoc(doc(db, 'interviews', String(id)));
+      setSelectedInterview(null);
+      setToastMessage('삭제되었습니다.');
+      setTimeout(() => setToastMessage(''), 3000);
+    } catch (e) {
+      console.error(e);
+      alert('삭제 실패');
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.applicant) {
       setToastMessage('지원자 성함은 필수 입력 사항입니다.');
@@ -153,7 +188,7 @@ export default function InterviewLog() {
 
     // 1. Sync to Firestore collection first
     try {
-      await setDoc(doc(db, 'interviews', String(newInterview.id)), newInterview);
+      await setDoc(doc(db, 'interviews', String(Date.now())), newInterview);
     } catch (e: any) {
       console.error('Interview DB write error:', e);
       alert('클라우드 데이터베이스 저장에 실패했습니다. 네트워크 상태를 확인해주세요: ' + (e?.message || e));
@@ -171,6 +206,7 @@ export default function InterviewLog() {
     });
     localStorage.removeItem('interviewDraft');
     setIsFormOpen(false);
+    setEditingId(null);
     setToastMessage('면접 기록이 클라우드에 안전하게 저장되었습니다.');
     setTimeout(() => setToastMessage(''), 3000);
 
@@ -360,9 +396,33 @@ export default function InterviewLog() {
                 <p className="text-sm font-bold text-rose-600">{selectedInterview.evaluation || '-'}</p>
               </div>
             </div>
+
+            {currentUser.role === 'admin' && selectedInterview && (
+              <div className="flex gap-2 w-full mt-4">
+                <button
+                  onClick={() => handleEdit(selectedInterview)}
+                  className="flex-1 py-3 bg-stone-800 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-stone-900 shadow-sm transition-all"
+                >
+                  <Edit2 className="w-4 h-4" /> 수정 (관리자)
+                </button>
+                <button
+                  onClick={(e) => handleDelete(selectedInterview.id, e)}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-red-700 shadow-sm transition-all"
+                >
+                  <Trash2 className="w-4 h-4" /> 삭제 (관리자)
+                </button>
+              </div>
+            )}
+            {currentUser.role !== 'admin' && (
+              <div className="p-3 mt-4 rounded-xl border bg-stone-50 border-stone-200 text-stone-600 flex items-start gap-2.5 text-xs">
+                <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0 text-stone-400" />
+                <span>등록된 일지는 관리자만 수정 및 삭제가 가능합니다. 일반 직원은 수정이 잠겨있으며, 관리자 권한으로만 수정/삭제가 가능합니다.</span>
+              </div>
+            )}
           </div>
         </div>
       ) : (
+
         <>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-0 pt-4">
         <div>
@@ -370,7 +430,7 @@ export default function InterviewLog() {
           <p className="text-sm text-gray-500 mt-1">면접 환경을 배려하고 편안한 분위기를 조성해주세요.</p>
         </div>
         <button 
-          onClick={() => setIsFormOpen(!isFormOpen)}
+          onClick={() => { setIsFormOpen(!isFormOpen); if(isFormOpen) setEditingId(null); }}
           className="w-full sm:w-auto bg-rose-400 hover:bg-rose-500 text-white px-4 py-3 sm:py-2 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm font-bold"
         >
           {isFormOpen ? '목록 보기' : <><Plus className="w-4 h-4" /> 새 면접 기록</>}
@@ -586,9 +646,33 @@ export default function InterviewLog() {
               </div>
             </section>
 
+
+            {currentUser.role === 'admin' && selectedInterview && (
+              <div className="flex gap-2 w-full mt-4">
+                <button
+                  onClick={() => handleEdit(selectedInterview)}
+                  className="flex-1 py-3 bg-stone-800 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-stone-900 shadow-sm transition-all"
+                >
+                  <Edit2 className="w-4 h-4" /> 수정 (관리자)
+                </button>
+                <button
+                  onClick={(e) => handleDelete(selectedInterview.id, e)}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-red-700 shadow-sm transition-all"
+                >
+                  <Trash2 className="w-4 h-4" /> 삭제 (관리자)
+                </button>
+              </div>
+            )}
+            {currentUser.role !== 'admin' && (
+              <div className="p-3 mt-4 rounded-xl border bg-stone-50 border-stone-200 text-stone-600 flex items-start gap-2.5 text-xs">
+                <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0 text-stone-400" />
+                <span>등록된 일지는 관리자만 수정 및 삭제가 가능합니다. 일반 직원은 수정이 잠겨있으며, 관리자 권한으로만 수정/삭제가 가능합니다.</span>
+              </div>
+            )}
           </div>
         </div>
       ) : (
+
         <div className="space-y-4">
           {/* 월별 필터 바 */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
